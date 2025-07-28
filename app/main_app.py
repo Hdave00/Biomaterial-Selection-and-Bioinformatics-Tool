@@ -9,6 +9,8 @@ st.set_page_config(page_title="Bioimplant Compatibility Tool", layout="wide")
 
 st.title("Bioimplant Compatibility & Material Suggestion Tool")
 
+st.write("Welcome! Select your input parameters from the sidebar to begin.")
+
 # Sidebar Input
 st.sidebar.header("Input Specifications")
 body_area = st.sidebar.selectbox("Select Body Area", ["Hip", "Knee", "Skull", "Spine"])
