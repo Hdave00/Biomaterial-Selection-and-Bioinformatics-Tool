@@ -1,6 +1,7 @@
 import streamlit as st
 import plotly.express as px
 
+# TODO function to show the compatibility of materials and to show comparisons, along with a biocompatibility index score
 def display_material_results(df):
     st.subheader("Compatible Materials")
     st.dataframe(df)
