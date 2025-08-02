@@ -3,6 +3,8 @@ import numpy as np
 
 def predict_materials(user_input):
     
+    """ Takes user inpit parameters and predicts materials to be shown. """
+
     # Load actual model and preprocess here in future, for now return dummy results
     results = pd.DataFrame({
         "Material": ["Ti-6Al-4V", "CoCrMo", "UHMWPE"],
