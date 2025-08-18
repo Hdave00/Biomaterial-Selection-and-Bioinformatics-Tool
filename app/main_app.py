@@ -33,3 +33,6 @@ if st.sidebar.button("Find Materials"):
     display_material_results(results)
 
 # adding more features here
+@st.cache_data
+def load_dataset():
+    return pd.read_csv("data/materials.csv")
