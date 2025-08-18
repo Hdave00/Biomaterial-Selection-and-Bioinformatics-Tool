@@ -32,6 +32,7 @@ I’m a bit confused as I want the input to be oriented to biofabrication and al
   * Young’s modulus, tensile strength, surface charge, shear force, atomic bond,
   * reactive or non-reactive, porous or non-porous, corrosive or non-corrosive, hardness, erosion factor, glass transition temperature,
   * cytotoxicity, surface tension of the material (for gliding/friction forces)
+  
 * pH of blood in hip area
 * Proteins found in the hip area and their fold type (using the Protein Folding Kaggle dataset), molecular weight, type of atomic bonding, toxicity, surface tension of main proteins
 * Biocompatibility score
