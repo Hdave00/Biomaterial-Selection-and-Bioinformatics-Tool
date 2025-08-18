@@ -30,3 +30,5 @@ if st.sidebar.button("Find Materials"):
     }
     results = predict_materials(user_input)
     display_material_results(results)
+
+# adding more features here
