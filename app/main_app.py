@@ -10,6 +10,8 @@ st.set_page_config(page_title="Bioimplant Compatibility Tool", layout="wide")
 # adding title and writing prompts
 st.title("Bioimplant Compatibility & Material Suggestion Tool")
 
+st.markdown("### Select your target application and constraints")
+
 # title welcome text, this is where the basic info will go
 st.write("Welcome! Select your input parameters from the sidebar to begin.")
 
