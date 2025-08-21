@@ -3,3 +3,4 @@ tensorflow
 pandas
 numpy
 plotly
+mp-api
