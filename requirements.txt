@@ -5,3 +5,5 @@ numpy
 plotly
 mp-api
 kaggle
+scikit-learn
+graphviz
