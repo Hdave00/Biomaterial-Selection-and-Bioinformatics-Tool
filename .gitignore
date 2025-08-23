@@ -2,4 +2,4 @@ biomat/
 app/__pycache__
 planning.md
 .env
-materials.zip
+zips/
