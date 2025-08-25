@@ -1,0 +1,1 @@
+HTML or other web-based pages needed for the streamlit pipline expansion or unforseen modularity needs for cohesion of the the application UI/UX.
