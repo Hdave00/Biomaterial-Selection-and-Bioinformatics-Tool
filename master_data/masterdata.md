@@ -13,6 +13,7 @@ Alternatives to One Giant CSV
 Use pandas in Python to load all CSVs and merge them automatically.
 If the columns are not identical across datasets, you can align them by renaming or filling missing features with NaN (and later impute them).
 
+``` py
 import pandas as pd
 from glob import glob
 
@@ -24,6 +25,7 @@ df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 
 # Save if needed
 df.to_csv("merged_dataset.csv", index=False)
+```
 
 This way, you don’t need to manually stitch them together.
 
