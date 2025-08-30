@@ -55,18 +55,17 @@ This way, i don’t have to force everything into one table.
 
 
 
-⚖️ Trade-off
-One merged dataset → simpler pipeline, single regression model, easy to manage once cleaned.
+- Trade-off
+One merged dataset -> simpler pipeline, single regression model, easy to manage once cleaned.
 
-Multi-file feeding → avoids one monster CSV, more flexible, but requires a slightly more advanced data loader.
+Multi-file feeding -> avoids one monster CSV, more flexible, but requires a slightly more advanced data loader.
 
-Multi-task model → best if datasets measure different but related outputs, not the exact same property.
+Multi-task model -> best if datasets measure different but related outputs, not the exact same property.
 
 
-
-👉 Given your description (“all the data is relevant for one singular purpose”), my guess is the best first step is:
+- Given the nature of the datasets mapped to the ultimate output the best first step would be:
 Align feature names + units once.
 
-Write a script to merge automatically (so you never do it by hand).
+Write a script to merge automatically (so i never need to do it by hand).
 
 Train on the unified dataset, or stream multiple CSVs if the file size is a problem.
