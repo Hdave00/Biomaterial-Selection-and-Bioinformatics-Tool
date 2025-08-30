@@ -40,18 +40,18 @@ In TensorFlow: tf.data.experimental.make_csv_dataset can take multiple files.
 
 In PyTorch: i can write a custom Dataset class that loads from multiple CSVs.
 
-So you don’t actually need one huge CSV—you just need a consistent feature schema across datasets.
+So i don’t actually need one huge CSV i just need a consistent feature schema across datasets.
 
 
 
 3. Multi-Task Setup
-If each dataset represents slightly different but related properties (e.g., one for cytotoxicity, one for modulus, one for shear strength), you could keep them separate and train a multi-task neural net:
+If each dataset represents slightly different but related properties (e.g., one for cytotoxicity, one for modulus, one for shear strength), i could keep them separate and train a multi-task neural net:
 
-Shared input layers → learn general representations.
+Shared input layers -> learn general representations.
 
-Task-specific output heads → predict dataset-specific labels.
+Task-specific output heads -> predict dataset-specific labels.
 
-This way, you don’t have to force everything into one table.
+This way, i don’t have to force everything into one table.
 
 
 
