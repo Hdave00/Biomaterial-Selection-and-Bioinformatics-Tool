@@ -11,7 +11,7 @@ Alternatives to One Giant CSV
 1. Concatenate Programmatically
 
 Use pandas in Python to load all CSVs and merge them automatically.
-If the columns are not identical across datasets, you can align them by renaming or filling missing features with NaN (and later impute them).
+If the columns are not identical across datasets, we can align them by renaming or filling missing features with NaN (and later impute them).
 
 ``` py
 import pandas as pd
@@ -27,7 +27,7 @@ df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 df.to_csv("merged_dataset.csv", index=False)
 ```
 
-This way, you don’t need to manually stitch them together.
+This way, i don’t need to manually stitch them together.
 
 
 
@@ -38,7 +38,7 @@ TensorFlow and PyTorch allow you to feed multiple CSVs as separate datasets, the
 
 In TensorFlow: tf.data.experimental.make_csv_dataset can take multiple files.
 
-In PyTorch: you can write a custom Dataset class that loads from multiple CSVs.
+In PyTorch: i can write a custom Dataset class that loads from multiple CSVs.
 
 So you don’t actually need one huge CSV—you just need a consistent feature schema across datasets.
 
