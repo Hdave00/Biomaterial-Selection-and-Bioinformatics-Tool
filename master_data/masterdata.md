@@ -11,7 +11,7 @@ Alternatives to One Giant CSV
 1. Programmatical concatonation
 
 Use pandas in Python to load all CSVs and merge them automatically.
-If the columns are not identical across datasets, we can align them by renaming or filling missing features with NaN (and later impute them).
+If the columns are not identical across datasets, we align them by renaming or filling missing features with NaN (and later impute them).
 
 ``` py
 import pandas as pd
