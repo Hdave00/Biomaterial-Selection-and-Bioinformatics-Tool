@@ -8,7 +8,7 @@ this is where most of he merged data will be, using a python script in pandas/tf
 Alternatives to One Giant CSV
 
 
-1. Concatenate Programmatically
+1. Programmatical concatonation
 
 Use pandas in Python to load all CSVs and merge them automatically.
 If the columns are not identical across datasets, we can align them by renaming or filling missing features with NaN (and later impute them).
