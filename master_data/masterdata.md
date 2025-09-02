@@ -65,6 +65,6 @@ Multi-task model -> best if datasets measure different but related outputs, not 
 - Given the nature of the datasets mapped to the ultimate output the best first step would be:
 Align feature names + units once.
 
-Write a script to merge automatically (so i never need to do it by hand).
+Write a script to merge automatically, so i never need to do it by hand after the first time.
 
 Train on the unified dataset, or stream multiple CSVs if the file size is a problem.
