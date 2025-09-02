@@ -45,7 +45,7 @@ So i don’t actually need one huge CSV i just need a consistent feature schema 
 
 
 3. Multi-Task Setup
-If each dataset represents slightly different but related properties (e.g., one for cytotoxicity, one for modulus, one for shear strength), i could keep them separate and train a multi-task neural net:
+If each dataset represents slightly different but related properties (e.g., one for cytotoxicity, one for young's modulus, one for shear strength), i could keep them separate and train a multi-task neural network:
 
 Shared input layers -> learn general representations.
 
