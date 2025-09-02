@@ -51,11 +51,10 @@ Shared input layers -> learn general representations.
 
 Task-specific output heads -> predict dataset-specific labels.
 
-This way, i don’t have to force everything into one table.
+This way, everything is not forced into one table.
 
 
-
-- Trade-off
+- Pros/Cons
 One merged dataset -> simpler pipeline, single regression model, easy to manage once cleaned.
 
 Multi-file feeding -> avoids one monster CSV, more flexible, but requires a slightly more advanced data loader.
