@@ -12,6 +12,7 @@ Alternatives to One Giant CSV
 
 Use pandas in Python to load all CSVs and merge them automatically.
 If the columns are not identical across datasets, we align them by renaming or filling missing features with NaN (and later impute them).
+Maybe the below script can help with merging CSV files.
 
 ``` py
 import pandas as pd
@@ -26,8 +27,6 @@ df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 # Save if needed
 df.to_csv("merged_dataset.csv", index=False)
 ```
-
-This way, i don’t need to manually stitch them together.
 
 
 
@@ -57,7 +56,7 @@ This way, everything is not forced into one table.
 - Pros/Cons
 One merged dataset -> simpler pipeline, single regression model, easy to manage once cleaned.
 
-Multi-file feeding -> avoids one monster CSV, more flexible, but requires a slightly more advanced data loader.
+Multi-file feeding -> avoids one big CSV, more flexible, but requires a slightly more advanced data loader.
 
 Multi-task model -> best if datasets measure different but related outputs, not the exact same property.
 
