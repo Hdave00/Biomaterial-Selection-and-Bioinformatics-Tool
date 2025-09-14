@@ -18,7 +18,7 @@ def predict_materials(user_input):
         "Manufacturing Method": ["EBM", "Casting", "Compression Molding"]
     }
 
-    # initialise and load the data 
+    # initialise and load the data in a pandas dataframe to work with CSVs
     df = pd.DataFrame(data)
 
     # filtering example (expand this later with ML/scoring)
