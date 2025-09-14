@@ -34,7 +34,7 @@ if st.sidebar.button("Find Materials"):
     results = predict_materials(user_input)
     display_material_results(results)
 
-# adding more features here
+# adding more features here, ideally we want to be able to add datasets as we see fit and load each one at will
 @st.cache_data
 def load_dataset():
     return pd.read_csv("data/materials.csv")
