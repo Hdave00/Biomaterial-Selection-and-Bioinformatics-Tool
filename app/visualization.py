@@ -10,3 +10,7 @@ def display_material_results(df):
                  color="Biocompatibility Score", size="Estimated Lifespan (yrs)",
                  hover_name="Material")
     st.plotly_chart(fig, use_container_width=True)
+
+    # TODO there will be a section for 3d visualisation of the body
+
+    # TODO visualization for the part to be determined
