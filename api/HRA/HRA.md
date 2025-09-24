@@ -1,0 +1,2 @@
+The HRA's API will be called for:
+1. Context modellin, so instead of just predicting "x material has y young's modulus" i could say, "X alloy matches cortical bone better than trabecular bone in femur". HRA also might be able to give us 
