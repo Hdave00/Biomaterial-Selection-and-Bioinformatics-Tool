@@ -9,7 +9,7 @@ But I would have to integrate it with Streamlit to highlight **where** in the bo
 
 4. If in the future i want to have an exact fit, i could enhance the output but showing graphically, the anatomical site, "material fit score" with a visual overlay using HRA. -> mainly for scaling, i doubt this is a core feature. 
 
-<u>So we basically want to pull: Anatomy Structures, The conditions in the tissue or the biomechanics etc, and the Cytotoxity within scope. Crosslink that with the datasets to create a realtime guide of the biomaterial selection and fabrication, listing clearly, how the material should be formed and what comes with fabricating a certain implant/prosthetic a certain way, and how that contradicts to the part of the human body we are considering (visualize using HRA), to ultimately get a compatibility score</u>
+<u>So we basically want to pull from api: Anatomy Structures, The conditions in the tissue or the biomechanics etc, and the Cytotoxity within scope. Crosslink that with the datasets to create a realtime guide of the biomaterial selection and fabrication, listing clearly, how the material should be formed and what comes with fabricating a certain implant/prosthetic a certain way, and how that contradicts to the part of the human body we are considering (visualize using HRA), to ultimately get a compatibility score</u>
 
 Workflow would be like:
 1. User selects “hip implant” in Streamlit -> 
