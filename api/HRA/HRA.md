@@ -9,4 +9,14 @@ But I would have to integrate it with Streamlit to highlight **where** in the bo
 
 4. If in the future i want to have an exact fit, i could enhance the output but showing graphically, the anatomical site, "material fit score" with a visual overlay using HRA. -> mainly for scaling, i doubt this is a core feature. 
 
-so we basically want to pull: Anatomy Structures, The conditions in the tissue or the biomechanics etc, and the Cytotoxity within scope. Crosslink that with the datasets to create a realtime guide of the biomaterial selection and fabrication, listing clearly, how the material should be formed and what comes with fabricating a certain implant/prosthetic a certain way, and how that contradicts to the part of the human body we are considering (visualize using HRA), to ultimately get a compatibility score. 
+<u>So we basically want to pull: Anatomy Structures, The conditions in the tissue or the biomechanics etc, and the Cytotoxity within scope. Crosslink that with the datasets to create a realtime guide of the biomaterial selection and fabrication, listing clearly, how the material should be formed and what comes with fabricating a certain implant/prosthetic a certain way, and how that contradicts to the part of the human body we are considering (visualize using HRA), to ultimately get a compatibility score</u>
+
+Workflow would be like:
+1. User selects “hip implant” in Streamlit -> 
+2. App queries HRA, femur cortical bone environment ->
+3. ML model filters materials with closest properties to bone ->
+4. App visualizes femur in 3D (from HRA API) and highlights recommended alloys, materials properties (density, cytotoxicity, hardness, young's modulus, crytall structure, MW, inertness/reactivity, erosion factor, corrosion/oxidation), fabrication methods and implications for usecase thereof (as highlighted above).
+5. Then the user sees: 
+    - Material Fit score/Biocompatibility score (mechanical + corrosion + cytotoxicity etc...)
+    - Visualization, ie the implant position in 3D anatomy using HRA
+    - Price estimate, using Materials Price API
