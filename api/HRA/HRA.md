@@ -1,4 +1,4 @@
-The HRA's API will be called for:
+**The HRA's API will be called for:**
 
 1. Context modelling, so instead of just predicting "x material has y young's modulus" i could say, "X alloy matches cortical bone better than trabecular bone in femur". HRA also might be able to give us tissue-level details of human anatomy for reference during biomaterial selection and production, so that includes biomechanical and biochemical environments.
 
