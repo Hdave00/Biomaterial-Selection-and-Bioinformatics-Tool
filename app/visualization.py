@@ -15,4 +15,4 @@ def display_material_results(df):
 
     # TODO visualization for the part to be determined
 
-    # TODO UI/UX to be used, here as well 
+    # TODO UI/UX to be used, here as well, will be done with Streamlit and compatible/built in tools
