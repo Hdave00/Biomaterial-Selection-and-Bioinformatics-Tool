@@ -14,3 +14,5 @@ def display_material_results(df):
     # TODO there will be a section for 3d visualisation of the body
 
     # TODO visualization for the part to be determined
+
+    # TODO UI/UX to be used, here as well 
