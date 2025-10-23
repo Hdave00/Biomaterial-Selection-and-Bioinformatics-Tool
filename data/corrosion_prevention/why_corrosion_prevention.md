@@ -1,1 +1,0 @@
-This is a comprehensive dataset that provides preventative methods for corrosion prevention in metals and overall needs more fitting and change of structure to a csv to be consistent in usage and training with other datasets for the end ML model.
