@@ -1,5 +1,3 @@
-
-
 """
 From a script or interactive session:
 
@@ -16,43 +14,64 @@ import inspect
 from pathlib import Path
 import pandas as pd
 import hashlib
+import logging
 import sys
+from datetime import datetime
 
-# If utils is not on sys.path when run from project root, ensure it is.
-# (This helps when you call DataProcessor from app code.)
+# -----------------------------
+# Setup: project paths & logging
+# -----------------------------
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from .master_index import create_material_index  # your existing function
-
-BASE_MASTER_DIR = Path("master_data")
+BASE_MASTER_DIR = ROOT / "master_data"
 BASE_MASTER_DIR.mkdir(exist_ok=True)
+
+# Configure logging
+LOG_FILE = BASE_MASTER_DIR / f"data_processor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# Import master index creator
+try:
+    from .master_index import create_material_index
+except ImportError:
+    create_material_index = None
+    logger.warning("Could not import create_material_index. Will fall back to basic index builder.")
 
 
 class DataProcessor:
+
     """
-    Flexible orchestrator that runs/loads pipeline outputs and returns unified ML-ready data.
-    It will attempt to call common entry-points in modules to obtain DataFrames.
+    Master orchestrator that dynamically runs domain pipelines (biological, chemical, etc.)
+    to create a unified ML usable dataset and master index.
     """
 
-    # For each domain we keep a list of candidate function names in order of preference
     PIPELINE_FN_CANDIDATES = {
         "biological": [
             "run_biological_pipeline", "create_cytotoxicity_scores",
             "create_cytotoxicity_score", "load_biological_data", "load_data"
         ],
         "chemical": [
-            "run_chemical_pipeline", "create_chemical_raw", "create_chemical_features",
-            "create_corrosion_scores", "load_chemical_data", "load_data"
+            "run_chemical_pipeline", "create_chemical_raw",
+            "create_chemical_features", "create_corrosion_scores",
+            "load_chemical_data", "load_data"
         ],
         "corrosion": [
             "run_corrosion_pipeline", "create_corrosion_compatibility",
             "create_corrosion_scores", "load_data"
         ],
         "polymer": [
-            # For polymer we know the file exposes load_data / merge_polymer_data / clean_for_ml
-            # but keep fallback names too.
             "create_unified_polymer_ml_data", "merge_polymer_data",
             "create_unified_polymer_data", "load_data"
         ],
@@ -75,195 +94,207 @@ class DataProcessor:
     # -------------------------
     @staticmethod
     def _call_first_available(module, candidates, *args, **kwargs):
-        """
-        Given a module and a list of candidate function names (strings),
-        call the first function that exists in the module.
-        Return the result of the call. If nothing found, return None.
-        """
         for name in candidates:
             if hasattr(module, name):
                 fn = getattr(module, name)
                 if callable(fn):
-                    # If function expects no args -> call without
                     try:
                         sig = inspect.signature(fn)
-                        # Support functions that accept nothing or accept DataFrames/paths,
-                        # attempt a safe call with args/kwargs when needed.
+                        logger.info(f"🔹 Calling {module.__name__}.{name}()")
                         if len(sig.parameters) == 0:
                             return fn()
                         else:
-                            # If caller passed args/kwargs, try calling with them
                             return fn(*args, **kwargs)
                     except Exception as e:
-                        # try calling without args as a fallback
-                        try:
-                            return fn()
-                        except Exception as e2:
-                            # both attempts fail, raise so the user sees the problem
-                            raise
+                        logger.error(f"Error in {module.__name__}.{name}: {e}", exc_info=True)
+        logger.warning(f"No valid function found among {candidates} in {module.__name__}")
         return None
 
     # -------------------------
-    # Domain loaders (flexible)
+    # Domain loaders
     # -------------------------
-    def _load_biological(self):
-        try:
-            mod = importlib.import_module("utils.pipelines.biological_pipeline")
-            df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["biological"])
-            if isinstance(df, pd.DataFrame):
-                self.biological = df
-                return df
-        except ModuleNotFoundError:
-            # fallback to the older single-file merge that you might have
-            try:
-                mod = importlib.import_module("utils.merge_biological_data")
-                df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["biological"])
-                if isinstance(df, pd.DataFrame):
-                    self.biological = df
-                    return df
-            except ModuleNotFoundError:
-                pass
-        return None
+    def _load_domain(self, domain, module_paths):
 
-    def _load_chemical(self):
-        try:
-            mod = importlib.import_module("utils.pipelines.chemical_pipeline")
-            df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["chemical"])
-            if isinstance(df, pd.DataFrame):
-                self.chemical = df
-                return df
-        except ModuleNotFoundError:
-            try:
-                mod = importlib.import_module("utils.merge_chemical_data")
-                df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["chemical"])
-                if isinstance(df, pd.DataFrame):
-                    self.chemical = df
-                    return df
-            except ModuleNotFoundError:
-                pass
-        return None
+        """
+        Generic loader for a given domain.
+        Tries each module path until a DataFrame is returned.
+        """
+        candidates = self.PIPELINE_FN_CANDIDATES.get(domain, [])
 
-    def _load_corrosion(self):
-        try:
-            mod = importlib.import_module("utils.pipelines.corrosion_pipeline")
-            df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["corrosion"])
-            if isinstance(df, pd.DataFrame):
-                self.corrosion = df
-                return df
-        except ModuleNotFoundError:
+        for mod_path in module_paths:
             try:
-                mod = importlib.import_module("utils.merge_chemical_data")
-                df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["corrosion"])
-                if isinstance(df, pd.DataFrame):
-                    self.corrosion = df
-                    return df
-            except ModuleNotFoundError:
-                pass
-        return None
 
-    def _load_polymer(self):
+                mod = importlib.import_module(mod_path)
+                logger.info(f"Loaded module {mod_path}")
+                df = self._call_first_available(mod, candidates)
 
-        # handle merge_polymer_ml_data.py specifically (it exposes load_data, merge, clean)
-        try:
-            mod = importlib.import_module("utils.merge_polymer_ml_data")
-            # prefer explicit step-by-step call using load_data() then merge then clean_for_ml()
-            if hasattr(mod, "load_data") and hasattr(mod, "merge_polymer_data"):
-                df_tg, df_main = mod.load_data()
-                merged = mod.merge_polymer_data(df_tg, df_main)
-                if hasattr(mod, "clean_for_ml"):
-                    merged = mod.clean_for_ml(merged)
-                self.polymer = merged
-                return merged
-            # fallback: call a single create_* function
-            df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["polymer"])
-            if isinstance(df, pd.DataFrame):
-                self.polymer = df
-                return df
-        except ModuleNotFoundError:
-            # try pipelines directory
-            try:
-                mod = importlib.import_module("utils.pipelines.polymer_pipeline")
-                df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["polymer"])
                 if isinstance(df, pd.DataFrame):
-                    self.polymer = df
+
+                    logger.info(f"{domain.capitalize()} data loaded successfully ({len(df)} rows)")
+                    setattr(self, domain, df)
+
                     return df
+                
             except ModuleNotFoundError:
-                pass
+                logger.warning(f"Module not found: {mod_path}")
+            except Exception as e:
+                logger.error(f"Failed to load {domain} from {mod_path}: {e}", exc_info=True)
+
+        logger.warning(f"No valid data found for {domain}")
         return None
 
     def _load_mechanical(self):
+        return self._load_domain("mechanical", [
+            "utils.pipelines.mechanical_pipeline",
+            "utils.merge_material_csv_data"
+        ])
+
+    def _load_polymer(self):
+
         try:
-            mod = importlib.import_module("utils.merge_material_csv_data")
-            # this file returns a unified DF if you run merge script; see if it exposes a function
-            df = self._call_first_available(mod, self.PIPELINE_FN_CANDIDATES["mechanical"])
-            if df is None:
-                # as fallback attempt to load the output CSV produced by the script
-                out = Path("data/materials_data/unified_material_data.csv")
-                if out.exists():
-                    df = pd.read_csv(out)
-            if isinstance(df, pd.DataFrame):
-                self.mechanical = df
-                return df
-        except ModuleNotFoundError:
-            pass
-        return None
+
+            mod = importlib.import_module("utils.merge_polymer_ml_data")
+
+            if hasattr(mod, "load_data") and hasattr(mod, "merge_polymer_data"):
+
+                df_tg, df_main = mod.load_data()
+                merged = mod.merge_polymer_data(df_tg, df_main)
+
+                if hasattr(mod, "clean_for_ml"):
+                    merged = mod.clean_for_ml(merged)
+
+                self.polymer = merged
+                logger.info(f"Polymer data merged successfully ({len(merged)} rows)")
+
+                return merged
+            
+        except Exception as e:
+            logger.warning(f"Fallback to pipeline for polymer: {e}")
+        return self._load_domain("polymer", [
+            "utils.pipelines.polymer_pipeline",
+            "utils.merge_polymer_ml_data"
+        ])
+
+    def _load_chemical(self):
+        return self._load_domain("chemical", [
+            "utils.pipelines.chemical_pipeline",
+            "utils.merge_chemical_data"
+        ])
+
+    def _load_corrosion(self):
+        return self._load_domain("corrosion", [
+            "utils.pipelines.corrosion_pipeline",
+            "utils.merge_corrosion_data"
+        ])
+
+    def _load_biological(self):
+        return self._load_domain("biological", [
+            "utils.pipelines.biological_pipeline",
+            "utils.merge_biological_data"
+        ])
 
     # -------------------------
-    # Master index and linking
+    # Master index builder
     # -------------------------
     def build_master_index(self):
-        """
-        Build or load master index. We try to call your create_material_index()
-        which (per earlier version) may be self-contained.
-        """
+
         try:
-            idx = create_material_index()
-            if isinstance(idx, pd.DataFrame) and "material_name" in idx.columns:
-                self.master_index = idx
-                return idx
-        except Exception:
-            # Last-resort: create a simple index from available data
-            names = set()
-            for df in [self.mechanical, self.chemical, self.corrosion, self.polymer, self.biological]:
-                if isinstance(df, pd.DataFrame):
-                    # try common name columns
-                    for c in ["Material", "material_name", "Polymer", "name", "Material_Raw", "Material_Name"]:
-                        if c in df.columns:
-                            names.update(df[c].dropna().astype(str).str.upper().unique())
-            master_index = pd.DataFrame(sorted(list(names)), columns=["material_name"])
-            master_index["material_id"] = master_index["material_name"].apply(
-                lambda x: hashlib.md5(x.encode()).hexdigest().upper()
-            )
-            self.master_index = master_index
-            return master_index
+
+            if create_material_index:
+                idx = create_material_index()
+
+                if isinstance(idx, pd.DataFrame):
+                    self.master_index = idx
+                    logger.info(f"Master index built using create_material_index ({len(idx)} entries)")
+                    return idx
+                
+        except Exception as e:
+            logger.error(f"create_material_index failed: {e}", exc_info=True)
+
+        # Fallback: construct from all known data
+        names = set()
+        for df in [self.mechanical, self.chemical, self.corrosion, self.polymer, self.biological]:
+            if isinstance(df, pd.DataFrame):
+
+                for c in ["Material", "material_name", "Polymer", "name", "Material_Raw", "Material_Name"]:
+                    if c in df.columns:
+                        names.update(df[c].dropna().astype(str).str.upper().unique())
+
+        master_index = pd.DataFrame(sorted(list(names)), columns=["material_name"])
+        master_index["material_id"] = master_index["material_name"].apply(
+            lambda x: hashlib.md5(x.encode()).hexdigest().upper()
+        )
+
+        self.master_index = master_index
+        logger.info(f"Master index built from dataset names ({len(master_index)} entries)")
+        return master_index
 
     # -------------------------
-    # Public orchestration method
+    # Linking datasets
+    # -------------------------
+    def _link_datasets(self):
+
+        if self.master_index is None:
+            return
+
+        def try_map(df):
+            if df is None or not isinstance(df, pd.DataFrame):
+                return df
+            df = df.copy()
+            for c in ["material_name", "Material", "Material_Raw", "Material_Name", "name", "Polymer", "Polymer_Class"]:
+                if c in df.columns:
+                    df["material_name"] = df[c].astype(str).str.upper()
+                    break
+            df = df.merge(self.master_index, on="material_name", how="left")
+            return df
+
+        self.mechanical = try_map(self.mechanical)
+        self.polymer = try_map(self.polymer)
+        self.chemical = try_map(self.chemical)
+        self.corrosion = try_map(self.corrosion)
+        self.biological = try_map(self.biological)
+        logger.info("🔗 Linked all domain datasets to master index")
+
+    # -------------------------
+    # Final unified file
+    # -------------------------
+    def _create_unified_master_file(self):
+
+        pieces = [df for df in [self.mechanical, self.polymer, self.chemical, self.corrosion, self.biological]
+                  if isinstance(df, pd.DataFrame)]
+        
+        if not pieces:
+            logger.warning("No datasets to unify.")
+            self.unified = None
+            return
+
+        unified = pd.concat(pieces, ignore_index=True, sort=False)
+
+        if "material_name" in unified.columns and "material_id" in unified.columns:
+            unified = unified.dropna(subset=["material_id"])
+            unified = unified.drop_duplicates(subset=["material_id", "material_name"])
+
+        output_path = BASE_MASTER_DIR / "unified_material_data.csv"
+        unified.to_csv(output_path, index=False)
+        self.unified = unified
+        logger.info(f"💾 Saved unified master CSV → {output_path} ({len(unified)} rows)")
+
+    # -------------------------
+    # Public runner
     # -------------------------
     def process_all_data(self):
-        print("DataProcessor: loading mechanical data...")
+
+        logger.info("Starting full data processing pipeline")
+
         self._load_mechanical()
-
-        print("DataProcessor: loading polymer data...")
         self._load_polymer()
-
-        print("DataProcessor: loading chemical data...")
         self._load_chemical()
-
-        print("DataProcessor: loading corrosion data...")
         self._load_corrosion()
-
-        print("DataProcessor: loading biological data...")
         self._load_biological()
-
-        print("DataProcessor: building master index...")
         self.build_master_index()
-
-        # Link datasets by normalized material name -> master_index.material_name
         self._link_datasets()
-
-        # Create a final unified file (simple concat of domain outputs keyed by material_name)
         self._create_unified_master_file()
+        logger.info(" Data processing complete!")
 
         return {
             "mechanical": self.mechanical,
@@ -274,48 +305,3 @@ class DataProcessor:
             "master_index": self.master_index,
             "unified": self.unified
         }
-
-    def _link_datasets(self):
-        """Add material_name / material_id fields to each dataset where possible."""
-        if self.master_index is None:
-            return
-
-        def try_map(df):
-            if df is None or not isinstance(df, pd.DataFrame):
-                return df
-            df = df.copy()
-            # find best name column
-            for c in ["material_name", "Material", "Material_Raw", "Material_Name", "name", "Polymer", "Polymer_Class"]:
-                if c in df.columns:
-                    df["material_name"] = df[c].astype(str).str.upper()
-                    break
-            # left-join with master index to get material_id
-            df = df.merge(self.master_index, on="material_name", how="left")
-            return df
-
-        self.mechanical = try_map(self.mechanical)
-        self.polymer = try_map(self.polymer)
-        self.chemical = try_map(self.chemical)
-        self.corrosion = try_map(self.corrosion)
-        self.biological = try_map(self.biological)
-
-    def _create_unified_master_file(self):
-        """Combine cleaned domain outputs into a single CSV for ML consumption."""
-        pieces = []
-        for df in [self.mechanical, self.polymer, self.chemical, self.corrosion, self.biological]:
-            if isinstance(df, pd.DataFrame):
-                pieces.append(df)
-        if not pieces:
-            self.unified = None
-            return
-
-        # concat and drop exact duplicates
-        unified = pd.concat(pieces, ignore_index=True, sort=False)
-        # ensure canonical columns exist
-        if "material_name" in unified.columns and "material_id" in unified.columns:
-            # drop rows lacking an id
-            unified = unified.dropna(subset=["material_id"])
-            unified = unified.drop_duplicates(subset=["material_id", "material_name"])
-        unified.to_csv(BASE_MASTER_DIR / "unified_material_data.csv", index=False)
-        self.unified = unified
-        print(f"Saved unified master CSV -> {BASE_MASTER_DIR / 'unified_material_data.csv'}")
