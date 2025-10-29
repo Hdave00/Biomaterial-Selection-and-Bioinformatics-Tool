@@ -52,18 +52,9 @@ Task-specific output heads -> predict dataset-specific labels.
 
 This way, everything is not forced into one table.
 
+------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-- Pros/Cons
-One merged dataset -> simpler pipeline, single regression model, easy to manage once cleaned.
+OR
 
-Multi-file feeding -> avoids one big CSV, more flexible, but requires a slightly more advanced data loader.
+Every domain specific file ie, Mechanical, Chemical and Biological doman dataset gets moved here and the neural network trains from here, from each csv by concatonating the CSVs together
 
-Multi-task model -> best if datasets measure different but related outputs, not the exact same property.
-
-
-- Given the nature of the datasets mapped to the ultimate output the best first step would be:
-Align feature names + units once.
-
-Write a script to merge automatically, so i never need to do it by hand after the first time.
-
-Train on the unified dataset, or stream multiple CSVs if the file size is a problem.

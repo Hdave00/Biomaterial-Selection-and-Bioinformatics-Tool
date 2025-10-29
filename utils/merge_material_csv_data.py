@@ -1,5 +1,5 @@
 """
-utils/merge_data_v2.py
+utils/merge_material_csv_data.py
 
 Improved merging / cleaning for materials_properties.csv (Kaggle).
 - Prefers 'Std' column for standard when available
@@ -12,6 +12,7 @@ Improved merging / cleaning for materials_properties.csv (Kaggle).
 import os
 import re
 import pandas as pd
+import hashlib
 
 
 # adjust as repo data folder location changes
@@ -73,7 +74,8 @@ def prefer_std_column(row):
             return token
     return "UNKNOWN"
 
-# expanded material type matcher (ordered, longer-first)
+# expanded material type matcher (ordered, longer-first) save the MATERIAL_TYPE_PATTERNS as a tuple, using regex for exact matches of various materials
+# this is done because of the specificity of the type of materials present in the csv
 MATERIAL_TYPE_PATTERNS = [
     # Copper alloys first (more specific)
     (r'\bMUNTZ METAL\b', 'COPPER_ALLOY'),
@@ -89,41 +91,49 @@ MATERIAL_TYPE_PATTERNS = [
     (r'\bGG\b', 'GRAY_CAST_IRON'),      # DIN GG-15, GG-20, etc.
     (r'\bGTS\b', 'CAST_IRON'),          # DIN GTS-40, GTS-50
     
-    # Standardized steel patterns
-    (r'\b(ST|USt|RSt|St)\d', 'STEEL'),           # DIN St37, USt34, RSt37
-    (r'\b(Ck|Cf)\d', 'CARBON_STEEL'),            # DIN Ck10, Ck15, Cf35
-    (r'\b(\d+Mn\d+|\d+Cr\d+|\d+Mo\d+)', 'ALLOY_STEEL'),  # DIN 17Mn4, 34Cr4, 15Mo3
-    (r'\b(\d+CrMo\d+|\d+CrV\d+)', 'ALLOY_STEEL'),        # DIN 25CrMo4, 50CrV4
-    (r'\b(\d+CrNiMo\d+|\d+Ni\d+)', 'ALLOY_STEEL'),       # DIN 17CrNiMo6, 10Ni14
-    (r'\bWTSt\d', 'STEEL'),                     # DIN WTSt52-3
+    # DIN specific patterns (free-cutting steels and special codes)
+    (r'\b(9SMN28|10S2O|35S20)\b', 'FREE_CUTTING_STEEL'),  # Free-cutting steels
+    (r'\b(HI|HII)\b', 'STEEL'),                           # DIN quality grades
+    (r'\b(UST1303|UST34-2|RST37-2)\b', 'STEEL'),          # Specific DIN codes
     
-    # JIS steel patterns
-    (r'\bS(NC|CM|UP|UHP|C|MnC|Cr)\d', 'ALLOY_STEEL'),  # JIS SCM430, SUP9, etc.
-    (r'\bSUS\d', 'STAINLESS_STEEL'),            # JIS SUS304, SUS316, etc.
-    (r'\bSUH\d', 'HEAT_RESISTANT_STEEL'),       # JIS SUH1, SUH330
-    (r'\bS\d+C\b', 'CARBON_STEEL'),             # JIS S10C, S45C, etc.
-    (r'\bSS\d+\b', 'STEEL'),                    # JIS SS330, SS400, SS490
-    (r'\bSTKM\d', 'STEEL'),                     # JIS STKM13B, STKM16A
-    (r'\bSM\d+\b', 'STEEL'),                    # JIS SM570, SM52OC
+    # DIN steel composition patterns (after clean_name removes prefixes)
+    (r'\b(CK|CF)\d+\b', 'CARBON_STEEL'),                  # CK10, CF35, etc.
+    (r'\b(\d+MN\d+|\d+CR\d+|\d+MO\d+)\b', 'ALLOY_STEEL'), # 17MN4, 34CR4, 15MO3
+    (r'\b(\d+CRMO\d+|\d+CRV\d+)\b', 'ALLOY_STEEL'),       # 25CRMO4, 50CRV4
+    (r'\b(\d+CRNIMO\d+|\d+NI\d+)\b', 'ALLOY_STEEL'),      # 17CRNIMO6, 10NI14
+    (r'\b(WTST\d+)\b', 'STEEL'),                          # WTST52-3
     
-    # BS steel patterns
-    (r'\bBS\s+(\d+[A-Z]|\d+[A-Z]\d+|\d+M\d+)', 'STEEL'),  # BS 230M07, 212M36, 070M26
-    (r'\bBS\s+Grade\s+\d+', 'STEEL'),           # BS Grade 360, Grade 430
-    (r'\bBS\s+\d+[A-Z]\d+', 'STEEL'),           # BS 530A36, 525A60
-    (r'\bBS\s+\d+S\d+', 'STAINLESS_STEEL'),     # BS 304S15, 316S11, 430S17
+    # JIS steel patterns (after clean_name)
+    (r'\b(SUM22|SMN433|SCR430|SCR435|SCR440|SMNC420)\b', 'ALLOY_STEEL'),
+    (r'\b(SNCM815|SNCM447|SNCM630)\b', 'ALLOY_STEEL'),
+    (r'\bS(NC|CM|UP|MnC|Cr)\d+', 'ALLOY_STEEL'),          # SCM430, SUP9, etc.
+    (r'\bSUS\d+', 'STAINLESS_STEEL'),                     # SUS304, SUS316, etc.
+    (r'\bSUH\d+', 'HEAT_RESISTANT_STEEL'),                # SUH1, SUH330
+    (r'\bS\d+C\b', 'CARBON_STEEL'),                       # S10C, S45C, etc.
+    (r'\bSS\d+\b', 'STEEL'),                              # SS330, SS400, SS490
+    (r'\bSTKM\d+', 'STEEL'),                              # STKM13B, STKM16A
+    (r'\bSM\d+\b', 'STEEL'),                              # SM570, SM52OC
+    
+    # BS steel patterns (after clean_name)
+    (r'\b(\d+[A-Z]\d+|\d+M\d+)\b', 'STEEL'),              # 230M07, 212M36, 070M26
+    (r'\bGRADE\s+\d+\b', 'STEEL'),                        # GRADE 360, GRADE 430
+    (r'\b(\d+[A-Z]\d+)\b', 'STEEL'),                      # 530A36, 525A60
+    (r'\b(\d+S\d+)\b', 'STAINLESS_STEEL'),                # 304S15, 316S11, 430S17
+    (r'\b(CR\d+GP|CR\d+PL|CEW\d+BK|CFS\d+NBK)\b', 'STEEL'), # CR3GP, CEW2BK, etc.
+    (r'\b(\d+[A-Z])\b', 'STEEL'),                         # 40B, 40C, 43B, 50D, etc.
     
     # CSN patterns (Czech standards)
-    (r'\bCSN\s+1[01]\d{4}', 'STEEL'),           # CSN 10370, 11110, 11301, etc.
-    (r'\bCSN\s+4[012]\d{4}', 'STEEL'),          # CSN 422303, 423042, etc.
+    (r'\b1[01]\d{4}\b', 'STEEL'),                         # 10370, 11110, 11301, etc.
+    (r'\b4[012]\d{4}\b', 'STEEL'),                        # 422303, 423042, etc.
     
     # NF (French) steel patterns
-    (r'\bNF\s+[XZ]\w+\d', 'STEEL'),             # NF XC10, Z6C13, Z12C13
-    (r'\bNF\s+\d+[A-Z]+\d', 'STEEL'),           # NF 13MF4, 35MF6
-    (r'\bNF\s+[A-Z]\d+', 'STEEL'),              # NF A34-2, E24-2, A48CP
-    (r'\bNF\s+\d+[CDMNS]+\d', 'ALLOY_STEEL'),   # NF 35CD4, 16MC5, 30CND8
+    (r'\b([XZ]\w+\d+)\b', 'STEEL'),                       # XC10, Z6C13, Z12C13
+    (r'\b(\d+[A-Z]+\d+)\b', 'STEEL'),                     # 13MF4, 35MF6
+    (r'\b([A-Z]\d+)\b', 'STEEL'),                         # A34-2, E24-2, A48CP
+    (r'\b(\d+[CDMNS]+\d+)\b', 'ALLOY_STEEL'),             # 35CD4, 16MC5, 30CND8
     
-    # Generic standards detection
-    (r'\b(DIN|BS|CSN|NF|JIS)\s+', 'STEEL'),    # Any material with these standards
+    # Generic standards detection (catch-all for any remaining standardized materials)
+    (r'\b(ST|UST|RST|CK|CF|SMN|SCR|SNCM)\w*\b', 'STEEL'),
     
     # Basic material types
     (r'\bBRASS\b', 'BRASS'),
@@ -157,10 +167,12 @@ def extract_material_type_from_name(material_name):
     if re.search(r'\bC\d{3,5}\b', name_u):  # C28000, C36500 style
         return "COPPER_ALLOY"
     
-    if re.search(r'\bEN\s+[A-Z0-9]+\b', name_u):
-        return "STEEL"
+    # If it contains common steel element symbols (Cr, Ni, Mo, V, Mn, etc.)
+    if re.search(r'\b(\d+CR|\d+NI|\d+MO|\d+V|\d+MN|\d+SI|\d+W|\d+CO)\b', name_u):
+        return "ALLOY_STEEL"
     
-    if re.search(r'\bDIN\b', name_u) and re.search(r'\bX\d', name_u):
+    # If it looks like a standardized code (numbers and letters mixed)
+    if re.search(r'^\d+[A-Z]|[A-Z]+\d+', name_u):
         return "STEEL"
     
     # If it starts with a known standard but no other pattern matched
@@ -191,16 +203,18 @@ def convert_units(df):
         df["Density_gcm3"] = df["Density_kgm3"] / 1000.0
     return df
 
+
 # Load the CSV
 print("Loading:", INPUT_CSV)
 
 # read as strings initially to avoid surprises
-df = pd.read_csv(INPUT_CSV, dtype=str)  
+df = pd.read_csv(INPUT_CSV, dtype=str)
 
 print("Original columns:", df.columns.tolist())
 
 # Try to force numeric columns (some CSVs have missing numeric cells)
 num_cols_candidates = ["Su","Sy","E","G","A5","Bhn","HV","mu","Ro"]
+
 for c in num_cols_candidates:
     if c in df.columns:
         df[c] = pd.to_numeric(df[c], errors='coerce')
@@ -225,7 +239,7 @@ if "Material_Name" not in df.columns:
 # Standard Selection (ANSI / ISO / DIN / UNKNOWN)
 df["Standard"] = df.apply(prefer_std_column, axis=1)
 
-# Rename Desc → Notes if present
+# Rename Desc -> Notes if present
 if "Desc" in df.columns:
     df = df.rename(columns={"Desc": "Notes"})
 
@@ -234,6 +248,141 @@ df["Material_Type"] = df["Material_Name"].apply(extract_material_type_from_name)
 
 # Units conversion
 df = convert_units(df)
+
+
+
+# Load High Entropy Alloys dataset
+HEA_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "high_entropy_alloys", "high_entropy_alloys_properties.csv")
+
+if os.path.exists(HEA_FILE):
+    df_hea = pd.read_csv(HEA_FILE)
+    
+    # Standardize column names and select relevant properties
+    df_hea_clean = pd.DataFrame()
+    
+    # Map HEA columns to your unified schema
+    df_hea_clean["Material_Raw"] = df_hea.get("FORMULA", "")
+    df_hea_clean["Material_Name"] = df_hea_clean["Material_Raw"].apply(make_clean_name)
+    df_hea_clean["Clean_Name"] = df_hea_clean["Material_Name"]
+    df_hea_clean["Standard"] = "HEA"
+    df_hea_clean["Material_Type"] = "HIGH_ENTROPY_ALLOY"
+    df_hea_clean["Heat treatment"] = df_hea.get("PROPERTY: Processing method", None)
+    
+    # Mechanical properties mapping
+    df_hea_clean["Tensile_Strength_MPa"] = df_hea.get("PROPERTY: UTS (MPa)", None)
+    df_hea_clean["Yield_Strength_MPa"] = df_hea.get("PROPERTY: YS (MPa)", None)
+    df_hea_clean["Youngs_Modulus_GPa"] = df_hea.get("PROPERTY: Exp. Young modulus (GPa)", 
+                                                   df_hea.get("PROPERTY: Calculated Young modulus (GPa)", None))
+    df_hea_clean["Hardness_HV"] = df_hea.get("PROPERTY: HV", None)
+    df_hea_clean["Elongation_percent"] = df_hea.get("PROPERTY: Elongation (%)", None)
+    df_hea_clean["Density_gcm3"] = df_hea.get("PROPERTY: Exp. Density (g/cm$^3$)", 
+                                             df_hea.get("PROPERTY: Calculated Density (g/cm$^3$)", None))
+    
+    # Set missing columns to None
+    df_hea_clean["Shear_Modulus_GPa"] = None
+    df_hea_clean["Poisson_Ratio"] = None
+    df_hea_clean["Hardness_BHN"] = None
+    df_hea_clean["Notes"] = "High Entropy Alloy: " + df_hea.get("PROPERTY: Microstructure", "").fillna("")
+    
+    # Generate IDs
+    df_hea_clean["Material_ID"] = df_hea_clean["Material_Name"].apply(
+        lambda x: hashlib.md5(x.encode()).hexdigest().upper()
+    )
+    
+    # Drop duplicates and append
+    df_hea_clean.drop_duplicates(subset=["Material_Name"], inplace=True)
+    df = pd.concat([df, df_hea_clean], ignore_index=True, sort=False)
+    print(f"Added High Entropy Alloys dataset ({len(df_hea_clean)} rows)")
+else:
+    print("High Entropy Alloys dataset not found -> Skipped")
+
+
+# Load Alloys dataset
+ALLOYS_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "alloys", "alloys_dataset.csv")
+
+if os.path.exists(ALLOYS_FILE):
+    df_alloys = pd.read_csv(ALLOYS_FILE)
+    
+    df_alloys_clean = pd.DataFrame()
+    
+    # Map Alloys columns to your unified schema
+    df_alloys_clean["Material_Raw"] = df_alloys.get("Alloy", "")
+    df_alloys_clean["Material_Name"] = df_alloys_clean["Material_Raw"].apply(make_clean_name)
+    df_alloys_clean["Clean_Name"] = df_alloys_clean["Material_Name"]
+    df_alloys_clean["Standard"] = "ASTM"  # Most are ASTM standards
+    df_alloys_clean["Material_Type"] = "ALLOY"
+    
+    # Convert psi to MPa for tensile strength
+    if "Tensile Strength: Ultimate (UTS) (psi)" in df_alloys.columns:
+        df_alloys_clean["Tensile_Strength_MPa"] = df_alloys["Tensile Strength: Ultimate (UTS) (psi)"] * 0.00689476
+    
+    # Set other properties to None (this dataset mainly has composition)
+    df_alloys_clean["Yield_Strength_MPa"] = None
+    df_alloys_clean["Youngs_Modulus_GPa"] = None
+    df_alloys_clean["Shear_Modulus_GPa"] = None
+    df_alloys_clean["Poisson_Ratio"] = None
+    df_alloys_clean["Density_gcm3"] = None
+    df_alloys_clean["Elongation_percent"] = None
+    df_alloys_clean["Hardness_BHN"] = None
+    df_alloys_clean["Hardness_HV"] = None
+    df_alloys_clean["Heat treatment"] = None
+    df_alloys_clean["Notes"] = "Alloy composition data"
+    
+    # Generate IDs
+    df_alloys_clean["Material_ID"] = df_alloys_clean["Material_Name"].apply(
+        lambda x: hashlib.md5(x.encode()).hexdigest().upper()
+    )
+    
+    # Drop duplicates and append
+    df_alloys_clean.drop_duplicates(subset=["Material_Name"], inplace=True)
+    df = pd.concat([df, df_alloys_clean], ignore_index=True, sort=False)
+    print(f"Added Alloys dataset ({len(df_alloys_clean)} rows)")
+else:
+    print("Alloys dataset not found -> Skipped")
+
+
+# Load elemental metals Young's Modulus dataset
+YOUNGS_MOD_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "youngs_modulus", "youngs_modulus.csv")
+
+if os.path.exists(YOUNGS_MOD_FILE):
+    df_young = pd.read_csv(YOUNGS_MOD_FILE, sep=";")
+
+    # Standardize column names
+    df_young.rename(columns={
+        "Metal": "Material_Raw",
+        "Young's Modulus (GPa)": "Youngs_Modulus_GPa"
+    }, inplace=True)
+
+    # Assign default metadata fields
+    df_young["Material_Name"] = df_young["Material_Raw"].apply(make_clean_name)
+    df_young["Clean_Name"] = df_young["Material_Name"]
+    df_young["Standard"] = "ELEMENT"
+    df_young["Material_Type"] = "METAL"
+    df_young["Heat treatment"] = None
+    df_young["Tensile_Strength_MPa"] = None
+    df_young["Yield_Strength_MPa"] = None
+    df_young["Shear_Modulus_GPa"] = None
+    df_young["Poisson_Ratio"] = None
+    df_young["Density_gcm3"] = None  # optional future enhancement
+    df_young["Elongation_percent"] = None
+    df_young["Hardness_BHN"] = None
+    df_young["Hardness_HV"] = None
+    df_young["Notes"] = None
+
+    # Generate unique Material IDs for metals if missing, use a lambda function, then use the hashlib to get a hexadec value for each id in CAPS
+    if "Material_ID" not in df_young.columns:
+        df_young["Material_ID"] = df_young["Material_Name"].apply(lambda x: hashlib.md5(x.encode()).hexdigest().upper())
+
+    # dropping exact duplicates to avoid double counting if youngs modulus info later overlaps with alloys
+    df_young.drop_duplicates(subset=["Material_Name"], inplace=True)
+
+    # Append into master df before filtering/output
+    df = pd.concat([df, df_young], ignore_index=True, sort=False)
+    print(f"Added elemental metals Young’s modulus dataset ({len(df_young)} rows)")
+
+
+else:
+    print("Young’s Modulus dataset not found -> Skipped")
 
 # Rename common numeric columns for clarity (if present)
 rename_map = {
@@ -261,6 +410,7 @@ final_cols = [
     "Notes",
 ]
 
+
 # use list iteration to check if there are any duplicated in the final file
 final_existing = [c for c in final_cols if c in df.columns]
 unified = df[final_existing].copy()
@@ -286,7 +436,7 @@ else:
 unified.to_csv(OUTPUT_CSV, index=False)
 print("Saved unified dataset ->", OUTPUT_CSV)
 
-# Print short summary
+# Print summary
 print("Summary:")
 print(" Rows:", len(unified))
 print(" Distinct standards:", unified["Standard"].nunique(), "examples ->", unified["Standard"].unique()[:10])

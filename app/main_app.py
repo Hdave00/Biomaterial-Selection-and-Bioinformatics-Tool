@@ -5,6 +5,28 @@ import os
 from model_interface import predict_materials
 from visualization import display_material_results
 
+from utils.feature_extractor import FeatureExtractor
+from utils.master_index import create_material_index
+
+sys.path.append('../utils')
+
+from model_interface import BiocompatibilityModel
+
+# Load all datasets once
+mechanical_df = pd.read_csv('master_data/unified_mechanical.csv')
+chemical_df = pd.read_csv('master_data/unified_polymer_data.csv')
+biological_df = pd.read_csv('master_data/biological/biocompatibility_master.csv')
+
+# Create master index
+master_index = create_material_index(mechanical_df, chemical_df, biological_df)
+
+# Initialize extractor
+extractor = FeatureExtractor(mechanical_df, chemical_df, biological_df, master_index)
+
+# Example usage
+features = extractor.get_material_features("PMMA")
+
+
 st.set_page_config(page_title="Bioimplant Compatibility Tool", layout="wide")
 
 # adding title and writing prompts
@@ -38,3 +60,92 @@ if st.sidebar.button("Find Materials"):
 @st.cache_data
 def load_dataset():
     return pd.read_csv("data/materials.csv")
+
+
+
+# Second approach
+def predict_biocompatibility(material_name, body_part, requirements):
+    # Get real-time data from APIs
+    mp_api = MaterialsProjectAPI()
+    hra_api = HumanReferenceAtlasAPI()
+    
+    # Material properties from Materials Project
+    material_props = mp_api.get_material_properties(material_name)
+    
+    # Biological context from Human Reference Atlas
+    biological_context = hra_api.get_tissue_properties(body_part)
+    
+    # Get ML features from our datasets
+    mechanical_features = data_manager.extract_mechanical_features(material_name)
+    chemical_features = data_manager.extract_chemical_features(material_name)
+    
+    # Predict biocompatibility score
+    score = model.predict([mechanical_features, chemical_features, biological_features])
+    
+    return {
+        'biocompatibility_score': score,
+        'material_properties': material_props,
+        'biological_context': biological_context,
+        'compatibility_analysis': analyze_compatibility(material_props, biological_context)
+    }
+
+
+
+# price index integration prototype
+
+def main():
+    st.title("Biocompatible Material Selection Tool")
+    
+    # User inputs (mechanical requirements, body part, etc.)
+    user_requirements = get_user_inputs()
+    
+    # ML model predicts biocompatibility scores
+    recommended_materials = model.predict_biocompatibility(user_requirements)
+    
+    # Add pricing information from API (POST-ML)
+    priced_materials = add_pricing_to_recommendations(recommended_materials)
+    
+    # Display results with pricing
+    display_results_with_pricing(priced_materials)
+
+def add_pricing_to_recommendations(materials):
+    """Add real-time pricing to ML recommendations"""
+    price_api = MaterialPriceAPI()
+    
+    priced_materials = []
+    for material in materials:
+        # Get current market price
+        current_price = price_api.get_current_price(material['name'])
+        price_trend = price_api.get_price_trend(material['name'])
+        
+        priced_materials.append({
+            **material,  # Keep all ML prediction data
+            'current_price_eur_kg': current_price,
+            'price_trend': price_trend,
+            'budget_compatibility': calculate_budget_compatibility(current_price, material)
+        })
+    
+    return sorted(priced_materials, key=lambda x: x['biocompatibility_score'], reverse=True)
+
+def display_results_with_pricing(materials):
+    st.header("Recommended Materials")
+    
+    for material in materials[:10]:  # Top 10 results
+        with st.expander(f"{material['name']} - Score: {material['biocompatibility_score']:.2f}"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.subheader("Properties")
+                st.metric("Young's Modulus", f"{material['youngs_modulus']} GPa")
+                st.metric("Biocompatibility", f"{material['biocompatibility_score']:.1%}")
+                
+            with col2:
+                st.subheader("Biological Context")
+                st.metric("Estimated Lifespan", f"{material['lifespan']} years")
+                st.metric("Corrosion Risk", material['corrosion_risk'])
+                
+            with col3:
+                st.subheader("Economic Factors")
+                st.metric("Current Price", f"€{material['current_price_eur_kg']}/kg")
+                st.metric("Price Trend", material['price_trend'])
+                st.metric("Budget Match", f"{material['budget_compatibility']:.1%}")
