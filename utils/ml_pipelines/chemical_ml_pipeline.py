@@ -16,9 +16,8 @@ def run_chemical_ml_pipeline(
     df = pd.read_csv(input_path)
     logging.info(f"Loaded {len(df)} chemical records with columns: {list(df.columns)}")
 
-    # ============================================================
+
     # Basic cleanup
-    # ============================================================
     # Drop name and text fields (not used for numeric ML features)
     drop_cols = ["Name", "num_sources"]
     for col in drop_cols:
@@ -28,9 +27,7 @@ def run_chemical_ml_pipeline(
     # Drop rows missing essential SMILES or label
     df = df.dropna(subset=["Canonical_SMILES", "biocompatibility_label"])
 
-    # ============================================================
     # Define features vs target
-    # ============================================================
     target = "biocompatibility_label"
     features = [
         "MolWt", "LogP", "TPSA", "HBD", "HBA", "AromaticRings"
@@ -39,15 +36,13 @@ def run_chemical_ml_pipeline(
     X = df[features]
     y = df[target]
 
-    # ============================================================
+ 
     # Scale numeric features
-    # ============================================================
     scaler = StandardScaler()
     X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=features)
 
-    # ============================================================
+
     # Combine into ML-ready dataset
-    # ============================================================
     ml_ready = pd.concat([df["Canonical_SMILES"], X_scaled, y], axis=1)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
