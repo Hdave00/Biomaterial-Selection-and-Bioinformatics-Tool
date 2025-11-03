@@ -11,6 +11,7 @@ def safe_str(x):
     return "" if pd.isna(x) else str(x)
 
 def make_clean_name(s: str) -> str:
+
     """Same clean normalizer used across pipelines."""
     if s is None:
         return ""
@@ -22,6 +23,7 @@ def make_clean_name(s: str) -> str:
     return s
 
 def load_unified_materials(path: Path = None) -> pd.DataFrame:
+
     """Load existing unified material master. If path not provided, use default master_data/unified_material_data.csv"""
     p = Path(path) if path else MASTER_DIR / "unified_material_data.csv"
     if not p.exists():
@@ -34,6 +36,7 @@ def load_unified_materials(path: Path = None) -> pd.DataFrame:
     return df
 
 def build_material_index(unified_df: pd.DataFrame = None) -> pd.DataFrame:
+
     """Return DataFrame mapping Clean_Name -> Material_ID (guaranteed unique by first encounter)."""
     if unified_df is None:
         unified_df = load_unified_materials()
@@ -43,6 +46,7 @@ def build_material_index(unified_df: pd.DataFrame = None) -> pd.DataFrame:
     return idx
 
 def match_material_to_master(name: str, unified_df: pd.DataFrame = None) -> str:
+    
     """Return Material_ID for a given raw name using exact Clean_Name match. Returns empty string if not found."""
     if unified_df is None:
         unified_df = load_unified_materials()

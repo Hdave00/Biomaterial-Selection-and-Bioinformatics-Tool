@@ -18,9 +18,8 @@ import logging
 import sys
 from datetime import datetime
 
-# -----------------------------
+
 # Setup: project paths & logging
-# -----------------------------
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -41,6 +40,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
 
 # Import master index creator
 try:
@@ -89,9 +89,8 @@ class DataProcessor:
         self.master_index = None
         self.unified = None
 
-    # -------------------------
+
     # Helper: dynamic function runner
-    # -------------------------
     @staticmethod
     def _call_first_available(module, candidates, *args, **kwargs):
         for name in candidates:
@@ -110,9 +109,8 @@ class DataProcessor:
         logger.warning(f"No valid function found among {candidates} in {module.__name__}")
         return None
 
-    # -------------------------
+
     # Domain loaders
-    # -------------------------
     def _load_domain(self, domain, module_paths):
 
         """
@@ -193,9 +191,8 @@ class DataProcessor:
             "utils.merge_biological_data"
         ])
 
-    # -------------------------
+
     # Master index builder
-    # -------------------------
     def build_master_index(self):
 
         try:
@@ -213,6 +210,7 @@ class DataProcessor:
 
         # Fallback: construct from all known data
         names = set()
+
         for df in [self.mechanical, self.chemical, self.corrosion, self.polymer, self.biological]:
             if isinstance(df, pd.DataFrame):
 
@@ -223,15 +221,14 @@ class DataProcessor:
         master_index = pd.DataFrame(sorted(list(names)), columns=["material_name"])
         master_index["material_id"] = master_index["material_name"].apply(
             lambda x: hashlib.md5(x.encode()).hexdigest().upper()
-        )
+)
 
         self.master_index = master_index
         logger.info(f"Master index built from dataset names ({len(master_index)} entries)")
         return master_index
 
-    # -------------------------
+
     # Linking datasets
-    # -------------------------
     def _link_datasets(self):
 
         if self.master_index is None:
@@ -255,9 +252,8 @@ class DataProcessor:
         self.biological = try_map(self.biological)
         logger.info("🔗 Linked all domain datasets to master index")
 
-    # -------------------------
+
     # Final unified file
-    # -------------------------
     def _create_unified_master_file(self):
 
         pieces = [df for df in [self.mechanical, self.polymer, self.chemical, self.corrosion, self.biological]
@@ -277,11 +273,10 @@ class DataProcessor:
         output_path = BASE_MASTER_DIR / "unified_material_data.csv"
         unified.to_csv(output_path, index=False)
         self.unified = unified
-        logger.info(f"💾 Saved unified master CSV → {output_path} ({len(unified)} rows)")
+        logger.info(f"💾 Saved unified master CSV -> {output_path} ({len(unified)} rows)")
 
-    # -------------------------
+
     # Public runner
-    # -------------------------
     def process_all_data(self):
 
         logger.info("Starting full data processing pipeline")

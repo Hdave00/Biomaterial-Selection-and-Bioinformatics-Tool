@@ -8,6 +8,7 @@ Outputs -> master_data/corrosion/corrosion_scores.csv
 
 from pathlib import Path
 import pandas as pd
+import math
 import numpy as np
 import re
 import logging
@@ -96,8 +97,12 @@ def mmrate_to_score(rate_mm_per_yr: float) -> float:
     r = max(rate_mm_per_yr, 0.0)
     # use a log transform and asymptote
     # score = 1 / (1 + log10(rate + 1)) -> rate=0 -> 1.0 ; large rate -> small score
-    import math
-    return 1.0 / (1.0 + math.log10(r + 1.0))
+
+    try:
+        r = max(rate_mm_per_yr, 0.0)
+        return 1.0 / (1.0 + math.log10(r + 1.0))
+    except Exception:
+        return np.nan
 
 def run_corrosion_pipeline():
     log.info("Starting corrosion pipeline...")

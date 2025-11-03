@@ -16,7 +16,7 @@ from typing import Optional, Dict
 log = logging.getLogger("chemical_pipeline")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-BASE = Path(__file__).resolve().parent.parent.parent
+BASE = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE / "data" / "cytotoxity_ionic_liquids" / "csv_datasets"
 MASTER_DIR = BASE / "master_data" / "chemical"
 MASTER_DIR.mkdir(parents=True, exist_ok=True)
@@ -170,6 +170,7 @@ def aggregate_to_compound(df):
     return agg
 
 def run_chemical_pipeline():
+
     log.info("Starting chemical pipeline...")
     df_all = parse_and_combine()
     out_raw = MASTER_DIR / "chemical_raw_combined.csv"
@@ -180,6 +181,10 @@ def run_chemical_pipeline():
     out_agg = MASTER_DIR / "chemical_features.csv"
     agg.to_csv(out_agg, index=False)
     log.info("Wrote aggregated chemical features -> %s (%d rows)", out_agg, len(agg))
+    
+    log.info("Descriptor coverage: %.1f%%", 100*agg["MolWt"].notna().mean())
+
+    return agg
 
 if __name__ == "__main__":
     run_chemical_pipeline()
