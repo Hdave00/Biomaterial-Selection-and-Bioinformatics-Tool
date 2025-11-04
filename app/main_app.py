@@ -1,16 +1,19 @@
+ # Streamlit app + simple UI glue
+
 import streamlit as st
 import pandas as pd
 import sys
 import os
-from model_interface import predict_materials
+from src.inference.model_interface import predict_materials
 from visualization import display_material_results
 
-from utils.feature_extractor import FeatureExtractor
-from utils.master_index import create_material_index
+from src.features.feature_extractor import FeatureExtractor
+from src.utils.master_index import create_material_index
 
 sys.path.append('../utils')
 
-from model_interface import BiocompatibilityModel
+from src.inference.model_interface import BiocompatibilityModel
+
 
 # Load all datasets once
 mechanical_df = pd.read_csv('master_data/unified_mechanical.csv')
@@ -66,14 +69,20 @@ def load_dataset():
 # Second approach
 def predict_biocompatibility(material_name, body_part, requirements):
     # Get real-time data from APIs
-    mp_api = MaterialsProjectAPI()
-    hra_api = HumanReferenceAtlasAPI()
+    mp_api = ...
+    hra_api = ...
     
     # Material properties from Materials Project
     material_props = mp_api.get_material_properties(material_name)
     
     # Biological context from Human Reference Atlas
     biological_context = hra_api.get_tissue_properties(body_part)
+
+    # pseudo vars
+    data_manager = ...
+    model = ...
+    biological_features = ...
+    analyze_compatibility = ...
     
     # Get ML features from our datasets
     mechanical_features = data_manager.extract_mechanical_features(material_name)
@@ -97,10 +106,10 @@ def main():
     st.title("Biocompatible Material Selection Tool")
     
     # User inputs (mechanical requirements, body part, etc.)
-    user_requirements = get_user_inputs()
+    user_requirements = ... # get_user_inputs()
     
     # ML model predicts biocompatibility scores
-    recommended_materials = model.predict_biocompatibility(user_requirements)
+    recommended_materials = ... # model.predict_biocompatibility(user_requirements)
     
     # Add pricing information from API (POST-ML)
     priced_materials = add_pricing_to_recommendations(recommended_materials)
@@ -110,7 +119,7 @@ def main():
 
 def add_pricing_to_recommendations(materials):
     """Add real-time pricing to ML recommendations"""
-    price_api = MaterialPriceAPI()
+    price_api = ...
     
     priced_materials = []
     for material in materials:
@@ -122,7 +131,7 @@ def add_pricing_to_recommendations(materials):
             **material,  # Keep all ML prediction data
             'current_price_eur_kg': current_price,
             'price_trend': price_trend,
-            'budget_compatibility': calculate_budget_compatibility(current_price, material)
+            'budget_compatibility': ... # calculate_budget_compatibility(current_price, material)
         })
     
     return sorted(priced_materials, key=lambda x: x['biocompatibility_score'], reverse=True)

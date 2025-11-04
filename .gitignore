@@ -4,5 +4,6 @@ planning.md
 .env
 zipfiles/
 api/
-/additional-data/
+additional-data/
 prepare_training_data.log
+archived_scripts
