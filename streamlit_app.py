@@ -1,5 +1,10 @@
 # entry_app.py
+import sys
 import streamlit as st
+st.write(sys.version)
+st.stop()
+
+
 import importlib
 
 st.set_page_config(page_title="Biomaterial and Bioinformatics Platform", layout="wide")
