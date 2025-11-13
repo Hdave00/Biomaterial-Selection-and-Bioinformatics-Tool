@@ -76,24 +76,56 @@ def rename_columns(df):
 
 # Load + Preprocess Dataset
 def load_and_prepare_data(csv_path):
-    """Load the alloy dataset, rename columns, and split into X/y."""
+    """
+    Load unified materials dataset, clean columns, handle duplicates,
+    and prepare numeric features for Young’s modulus prediction.
+    """
+
     df = pd.read_csv(csv_path)
-    df = rename_columns(df)
 
-    # Identify feature and target columns
-    feature_cols = [c for c in df.columns if c not in ['Alloy', 'UTS', 'Liquidus']]
-    target_col = 'UTS'  # Change to 'Liquidus' if you want to predict melting point
+    # Drop empty columns and rows with missing target
+    df = df.dropna(axis=1, how='all').dropna(subset=['Youngs_Modulus_GPa'], how='any')
 
-    X = df[feature_cols].select_dtypes(include=[np.number])
-    y = df[target_col]
+    # Deduplicate duplicate column names manually
+    seen = {}
+    new_columns = []
+    for col in df.columns:
+        if col in seen:
+            seen[col] += 1
+            new_columns.append(f"{col}_{seen[col]}")
+        else:
+            seen[col] = 0
+            new_columns.append(col)
+    df.columns = new_columns
 
-    # Impute missing numeric values
+    # Rename column variants for consistency
+    rename_map = {
+        'Youngs_Modulus_GPa': 'Youngs_Modulus_GPa',
+        'Elastic_Modulus_GPa': 'Youngs_Modulus_GPa',
+        'E': 'Youngs_Modulus_GPa',
+        'UTS': 'Tensile_Strength_MPa',
+        'Tensile_Strength_MPa_1': 'Tensile_Strength_MPa',
+        'Tensile_Strength_MPa_2': 'Tensile_Strength_MPa',
+    }
+    df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns}, inplace=True)
+
+    target_col = 'Youngs_Modulus_GPa'
+    if target_col not in df.columns:
+        raise ValueError("No Young’s modulus column found in dataset!")
+
+    numeric_df = df.select_dtypes(include=[np.number])
+    feature_cols = [c for c in numeric_df.columns if c != target_col]
+
     imputer = SimpleImputer(strategy='mean')
-    X_imputed = imputer.fit_transform(X)
-    X = pd.DataFrame(X_imputed, columns=X.columns)
+    X = imputer.fit_transform(numeric_df[feature_cols])
+    y = numeric_df[target_col]
+
+    X = pd.DataFrame(X, columns=feature_cols)
+
+    log.info(f"Loaded {len(df)} materials, {len(feature_cols)} numeric features.")
+    log.info(f"Predicting target: {target_col}")
 
     return X, y, feature_cols
-
 
 # Model Training + Evaluation
 def train_models(X, y):
@@ -140,6 +172,7 @@ SCALER_PATH = "models/youngs_modulus_scaler.pkl"
 FEATURE_PATH = "models/youngs_modulus_features.json"
 
 def save_model(model, scaler, feature_cols):
+    
     """Save model, scaler, and feature list to /models directory."""
     os.makedirs("models", exist_ok=True)
     joblib.dump(model, MODEL_PATH)
@@ -171,7 +204,7 @@ def predict_youngs_modulus(input_dict):
 
 # Main entrypoint for training
 if __name__ == "__main__":
-    data_path = "data/alloys/alloys_properties.csv"
+    data_path = "master_data/unified_material_data.csv"
     X, y, feature_cols = load_and_prepare_data(data_path)
     model, scaler = train_models(X, y)
     save_model(model, scaler, feature_cols)

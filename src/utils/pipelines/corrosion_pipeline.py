@@ -54,6 +54,7 @@ def parse_rating_or_rate(value: str) -> float:
         # return inverse numeric rate proxy: map letter to small numeric mm/yr surrogate (higher letter -> small rate)
         # we later convert letter map to score
         return np.nan  # indicate non-numeric; handle separately
+    
     # Try to extract numeric mm/yr
     # Normalize units: if in mils/yr (thousandth inch), convert to mm/yr (1 mil = 0.0254 mm)
     # handle formats like "0.05 max", "2 max", "0.001"
@@ -64,6 +65,7 @@ def parse_rating_or_rate(value: str) -> float:
         num = float(num_match[0])
     except:
         return np.nan
+    
     # guess units: if value > 10 it's probably mils/yr or other - but dataset mixes mm and mils; we cannot reliably infer
     # If text contains 'mils' or 'in' treat as mils (convert)
     if re.search(r'mil', s, flags=re.I) or re.search(r'inch', s, flags=re.I) or re.search(r'"', s):
@@ -132,6 +134,7 @@ def run_corrosion_pipeline():
     df["rate_mm_from_mmcol"] = df["Rate (mm/yr) or Rating"].apply(parse_rating_or_rate)
     df["rate_mm_from_milscol"] = df["Rate (mils/yr) or Rating"].apply(parse_rating_or_rate)
     df["rate_mm"] = df["rate_mm_from_mmcol"].fillna(df["rate_mm_from_milscol"])
+    
     # also compute rating scores when a letter rating is present
     df["rating_score"] = df["Rate (mm/yr) or Rating"].apply(rating_to_score)
     df["rating_score"] = df["rating_score"].fillna(df["Rate (mils/yr) or Rating"].apply(rating_to_score))

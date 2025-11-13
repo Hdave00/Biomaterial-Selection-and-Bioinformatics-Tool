@@ -35,7 +35,7 @@ BIOCOMPATIBLE_THRESHOLD_MILLIMOLAR = 10.0  # >= => biocompatible
 CELL_LINES_FILE = DATA_DIR.parent / "cell_lines.csv"
 METHODS_FILE = DATA_DIR.parent / "methods.csv"
 
-# Field names in your datasets (as you provided)
+# Field names as given in main biological dataset
 MEAS_COLUMNS = [
     "Name","Empirical formula","CAS","SMILES","Canonical SMILES",
     "Mw, g*mol-1","CC50/IC50/EC50, mM","Statistics (95% CI, SEM, SD, RMSE, SE etc.)",
@@ -229,7 +229,8 @@ def aggregate_to_material_label(df_records: pd.DataFrame, cell_lines_df: pd.Data
     # Identify human cell line names from the cell_lines file
     human_cells = set()
     if not cell_lines_df.empty:
-        # detect rows where Organism suggests human
+
+        # detect rows where Organism suggests human, homo sapien only :)
         for _, r in cell_lines_df.iterrows():
             org = safe_str(r.get("Organism", "")).lower()
             name = safe_str(r.get("Cell name", "")).strip()

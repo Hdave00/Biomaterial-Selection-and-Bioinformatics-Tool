@@ -4,6 +4,11 @@ planning.md
 .env
 zipfiles/
 api/
-additional-data/
+future-expansion-data/
 prepare_training_data.log
 archived_scripts
+src/ml_pipelines/deprecated_pipelines
+master_data/biological/deprecated_data
+master_data/chemical/deprecated_data
+debug_oligomer_model.py
+templates/

@@ -1,5 +1,3 @@
-# here will be code for the chemical ml pipeline
-
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from pathlib import Path

@@ -58,3 +58,76 @@ OR
 
 Every domain specific file ie, Mechanical, Chemical and Biological doman dataset gets moved here and the neural network trains from here, from each csv by concatonating the CSVs together
 
+# This is how we can use multiple datasets at once in streamlit
+```
+import streamlit as st
+import pandas as pd
+
+# Domain selector
+domain = st.sidebar.selectbox("Select domain", [
+    "Biological", "Chemical", "Corrosion", "Polymer", "Structural"
+])
+
+if domain == "Biological":
+    df = pd.read_csv("master_data/biological/chemical_toxicity_measurements.csv")
+    smiles = st.text_input("Enter SMILES or Compound Name")
+    if st.button("Search"):
+        st.write(df[df["Clean_Name"].str.contains(smiles, case=False, na=False)])
+
+elif domain == "Chemical":
+    df = pd.read_csv("master_data/chemical/chemical_raw_combined.csv")
+    smiles = st.text_input("Enter SMILES")
+    if st.button("Search"):
+        st.write(df[df["Canonical_SMILES"].str.contains(smiles, case=False, na=False)])
+
+elif domain == "Corrosion":
+    df = pd.read_csv("master_data/corrosion/corr_lookup_Database.csv")
+    material = st.text_input("Enter Material or UNS code")
+    if st.button("Search"):
+        st.write(df[df["Material"].str.contains(material, case=False, na=False)])
+```
+
+## For materials
+```
+import streamlit as st
+import pandas as pd
+
+df = pd.read_csv("master_data/unified_material_data.csv")
+
+st.title("Structural Material Finder")
+
+mat_type = st.selectbox("Material type", sorted(df["Material_Type"].dropna().unique()))
+youngs = st.number_input("Min Young's Modulus (GPa)", 0.0, 1000.0, 100.0)
+tensile = st.number_input("Min Tensile Strength (MPa)", 0.0, 3000.0, 200.0)
+
+if st.button("Search"):
+    results = df[
+        (df["Material_Type"].str.contains(mat_type, case=False, na=False)) &
+        (df["Youngs_Modulus_GPa"] >= youngs) &
+        (df["Tensile_Strength_MPa"] >= tensile)
+    ]
+    st.write(results[["Material_Name", "Material_Type", "Youngs_Modulus_GPa",
+                      "Tensile_Strength_MPa", "Density_gcm3", "Elongation_percent"]])
+```
+
+## For polymers
+```
+import streamlit as st
+import pandas as pd
+
+df_poly = pd.read_csv("master_data/unified_polymer_data.csv")
+
+st.title("Polymer Material Finder")
+
+poly_name = st.text_input("Polymer name or abbreviation")
+min_tg = st.number_input("Min Tg (K)", 0.0, 2000.0, 300.0)
+max_density = st.number_input("Max density (g/cm³)", 0.0, 3.0, 1.5)
+
+if st.button("Search"):
+    results = df_poly[
+        (df_poly["name"].str.contains(poly_name, case=False, na=False)) &
+        (df_poly["Tg"] >= min_tg) &
+        (df_poly["Density"] <= max_density)
+    ]
+    st.write(results[["name", "grade", "Density", "Tg", "Polymer_Class", "manufacturer"]])
+```
