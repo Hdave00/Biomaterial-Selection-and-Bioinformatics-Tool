@@ -5,13 +5,14 @@ import pandas as pd
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from mp_api.client import MPRester
+import streamlit as st
 
 # Load key from .env
 load_dotenv()
-API_KEY = os.getenv("MP_API_KEY")
+API_KEY = st.secrets.get("MP_API_KEY") or os.getenv("MP_API_KEY")
 
 if not API_KEY:
-    raise ValueError("MP_API_KEY not loaded from .env")
+    raise ValueError("MP_API_KEY not loaded from Streamlit secrets")
 
 
 def tidy_summary_safe(summary_json: dict) -> dict:
