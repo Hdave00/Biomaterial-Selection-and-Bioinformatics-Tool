@@ -150,7 +150,7 @@ h4 { font-size: 1.8rem; font-weight: 500; color: #fefefe; }
 
 # --- Main Page ---
 st.markdown("<div class='main-container'>", unsafe_allow_html=True)
-st.title("Biomat AI Platform")
+st.title("Biomaterial and Bioinformatics Novel Platform")
 st.markdown("<p class='header-subtext'>Machine Learning-driven discovery, prediction, and selection of advanced biomaterials, unified in one pragmatic platform.</p>", unsafe_allow_html=True)
 
 # --- Domain Overview ---
