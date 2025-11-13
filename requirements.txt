@@ -8,7 +8,7 @@ py3Dmol>=2.0.4,<2.1
 mp-api>=0.45.8,<0.46
 pymatgen>=2025.10.7,<2025.11
 monty>=2025.1.9  # align with pymatgen requirements
-maggma>=0.73.0,<0.74
+maggma<=0.72.0
 spglib>=2.5  # required by pymatgen>=2025.10.7
 hra-api-client>=0.17.0,<0.18
 
