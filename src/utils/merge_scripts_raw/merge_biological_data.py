@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 
-# Set up base paths - FIXED: Your script is in utils/, so we only need to go up one level to reach repo root
+# Set up base paths, script is in utils/, so we only need to go up one level to reach repo root
 BASE = Path(__file__).resolve().parent.parent  # This should point to biomaterial-selection/
 DATA_DIR = BASE / "data"
 MASTER_DIR = BASE / "master_data"
@@ -22,8 +22,8 @@ def create_cytotoxicity_score():
     
     all_cytotoxicity = []
     
-    # Cytotoxicity data path - FIXED: Use the correct directory name
-    cytotoxicity_dir = DATA_DIR / "cytotoxicity_ionic_liquids" / "csv_datasets"  # Note: cytotoxity (not cytotoxicity)
+    # Cytotoxicity data path, imp, use the correct directory name
+    cytotoxicity_dir = DATA_DIR / "cytotoxicity_ionic_liquids" / "csv_datasets"  
     print(f"Looking for cytotoxicity files in: {cytotoxicity_dir}")
     print(f"Absolute path: {cytotoxicity_dir.absolute()}")
     
@@ -31,7 +31,7 @@ def create_cytotoxicity_score():
     if not cytotoxicity_dir.exists():
         print(f"ERROR: Directory does not exist: {cytotoxicity_dir}")
         # Try alternative path without csv_datasets
-        cytotoxicity_dir = DATA_DIR / "cytotoxity_ionic_liquids"  # Note the spelling
+        cytotoxicity_dir = DATA_DIR / "cytotoxity_ionic_liquids"  # Note the spelling bs
         print(f"Trying alternative path: {cytotoxicity_dir}")
         print(f"Absolute path: {cytotoxicity_dir.absolute()}")
     
@@ -82,19 +82,19 @@ def process_cytotoxicity_data(df):
     
     print("Processing cytotoxicity data...")
     
-    # 1. Normalize concentration values (CC50/IC50/EC50)
+    # first Normalize concentration values (CC50/IC50/EC50)
     # Lower values = more toxic, higher values = less toxic
     df['normalized_toxicity'] = df['CC50/IC50/EC50, mM'].apply(
         lambda x: convert_to_toxicity_score(x) if pd.notna(x) else 0.5
     )
     
-    # 2. Account for different cell lines (more human-relevant lines get higher weight)
+    # then Account for different cell lines (more human-relevant lines get higher weight)
     df['cell_line_weight'] = df['Cell line'].apply(weight_cell_line_relevance)
     
-    # 3. Account for different methods (standardize across measurement techniques)
+    # then Account for different methods (standardize across measurement techniques)
     df['method_reliability'] = df['Method'].apply(weight_method_reliability)
     
-    # 4. Calculate final cytotoxicity score (0-1, where 1 = most biocompatible)
+    # then Calculate final cytotoxicity score (0-1, where 1 = most biocompatible)
     df['cytotoxicity_score'] = (
         df['normalized_toxicity'] * 0.6 +
         df['cell_line_weight'] * 0.3 +
