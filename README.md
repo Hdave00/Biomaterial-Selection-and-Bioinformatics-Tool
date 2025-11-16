@@ -1,4 +1,4 @@
-# ** Biomaterial-Selection-and-Bioinformatics-Tool **
+# Biomaterial-Selection-and-Bioinformatics-Tool
 
 ## NOTE-- This README is incomplete as of now, basic operational instructions only, complete details coming very soon!
 
