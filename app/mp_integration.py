@@ -9,8 +9,20 @@ import streamlit as st
 
 # Load key from .env
 load_dotenv()
-API_KEY = st.secrets.get("MP_API_KEY") or os.getenv("MP_API_KEY")
+API_KEY = None
 
+
+# Try Streamlit Secrets first, cause streamlit cloud uses st.secrets
+try:
+    API_KEY = st.secrets["MP_API_KEY"]
+except Exception:
+    pass
+
+# if not then fallback to  .env (local)
+if not API_KEY:
+    API_KEY = os.getenv("MP_API_KEY")
+
+# if no api key at all, then raise error
 if not API_KEY:
     raise ValueError("MP_API_KEY not loaded from Streamlit secrets")
 

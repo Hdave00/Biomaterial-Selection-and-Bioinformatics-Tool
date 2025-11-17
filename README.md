@@ -20,6 +20,12 @@ Platform is live on Streamlit!
 
 ---
 
+# Datasets and citation
+
+...
+
+---
+
 ## **Features**
 
 ### 🔍 **Local Database Search**
@@ -27,6 +33,8 @@ Platform is live on Streamlit!
 * Query materials stored in your local CSV or database.
 * Fast and cached lookup.
 * Returns full material metadata.
+
+---
 
 ### 🌐 **Materials Project Integration**
 
@@ -41,15 +49,21 @@ Platform is live on Streamlit!
   * Thermodynamics (when available)
 * Handles missing MP data gracefully.
 
+---
+
 ### 🧪 **3D Structure Viewer** (not yet implemented...)
 
 * Interactive **py3Dmol** molecular visualizer. (details coming soon...)
 * Supports rotation, zoom, and style changes.
 * Automatically loads valid MP structures.
 
+---
+
 ### 🧮 **ML Prediction Pipelines**
 
 * Details coming soon ...
+
+---
 
 ### 🖥️ **Modern Streamlit Dashboard**
 
@@ -140,6 +154,8 @@ streamlit run streamlit_app.py
    * Bonding + magnetism
    * Elasticity (when available)
 
+
+---
 ### **ML Prediction**
 
 1. Navigate to **Prediction** tab. (more details coming soon...)

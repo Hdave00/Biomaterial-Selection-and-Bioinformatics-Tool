@@ -1,4 +1,7 @@
- # Streamlit app + simple UI glue
+"""
+This is where most of the machine learning UI section of the app lives. The whole tab is wrapped in a function that is called at the end of the script.
+
+"""
 
 def run_ml_app():
 
@@ -9,9 +12,10 @@ def run_ml_app():
     import os
     import numpy as np
 
-    # --- Ensure src is accessible ---
+    # Ensure src is accessible ---
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
+    # Load models from src/inference/model_interface.py
     from src.inference.model_interface import (
         load_polymer_tg_model,
         load_youngs_modulus_model,
@@ -37,8 +41,10 @@ def run_ml_app():
             # load_binding_model(),
         )
 
+    # Set the models that are loaded and in use, as a callable function
     polymer_model, youngs_model, qsar_model = get_models()
 
+    # This model was acting weird with the session_st caching so im loading it separately for now
     oligomer_model = load_oligomeric_state_model()
 
     # NOTE This is for UI debugging
@@ -47,6 +53,8 @@ def run_ml_app():
     #st.text(f"Scaler: {oligomer_model.get('scaler')}")
     #st.text(f"Encoder: {oligomer_model.get('encoder')}")
 
+
+    # Styling CSS
     st.markdown("""
     <style>
     /* --- Base typography --- */
@@ -184,7 +192,7 @@ def run_ml_app():
 
     # Page config
     st.set_page_config(page_title="Biomaterial ML Suite", layout="wide")
-    st.title("Biomaterial ML Prediction Suite")
+    st.title("Material and Protein ML Prediction Suite")
     st.markdown("Choose a domain to begin exploring predictions and material insights.")
 
     # --- Navigation ---
@@ -197,9 +205,8 @@ def run_ml_app():
         "Protein–Ligand Binding Predictor"
     ])
 
-    # ==============================
-    # HOME TAB
-    # ==============================
+
+    # HOME TAB --- 
     with tabs[0]:
         st.markdown("<div class='section'>", unsafe_allow_html=True)
         st.header("Welcome")
@@ -229,12 +236,15 @@ def run_ml_app():
         </p>
         """, unsafe_allow_html=True)
 
+        # Since the user has to predict the Tg of a polymer using smiles, let them input an acceptable sequence
         smiles_val = st.text_input(
             "Enter Polymer SMILES:",
             value="C=CC(=O)OCC",
             key="polymer_smiles"
         )
 
+        # When th predict button is pressed, show a spinnder animation for wait time, call the predict_polymer_tg function from model_interface.py
+        # and output the prediction below all the input fields, in its own metric box
         if st.button("Predict Tg", use_container_width=True, key="btn_poly_tg"):
             try:
                 with st.spinner("Calculating Tg..."):
@@ -249,7 +259,7 @@ def run_ml_app():
                     value=f"{tg_pred['Tg_pred']:.2f}",
                 )
 
-                # Optional details expanded
+                # Optional details expanded, incase the user wants to see detailed output
                 with st.expander("Show Prediction Details"):
                     st.json({
                         "SMILES": smiles_val,
@@ -273,6 +283,7 @@ def run_ml_app():
         </p>
         """, unsafe_allow_html=True)
 
+        # We need more fields for calculating the Youngs modulus of a material
         with st.form("youngs_modulus_form"):
             col1, col2 = st.columns(2)
 
@@ -296,6 +307,7 @@ def run_ml_app():
             submitted = st.form_submit_button("Predict Young’s Modulus")
 
         if submitted:
+
             # --- One-hot encoding for material type ---
             input_dict = {
                 "Density_gcm3": density,
@@ -471,7 +483,7 @@ def run_ml_app():
                     #st.text(X_scaled)
 
 
-
+    # NOTE-- Section not implemented yet!
     with tabs[5]:
         st.subheader("Protein–Ligand Binding Predictor")
         st.markdown("Estimate whether a given ligand binds to a protein target structure.")
