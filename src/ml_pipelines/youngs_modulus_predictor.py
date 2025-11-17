@@ -60,6 +60,7 @@ def extract_symbol(col_name):
     m = re.search(r"\(([^)]+)\)", col_name)
     return m.group(1) if m else col_name.strip()
 
+
 def rename_columns(df):
 
     """Standardize columns to element symbols and simpler property names."""
@@ -98,6 +99,7 @@ def load_and_prepare_data(csv_path):
             new_columns.append(col)
     df.columns = new_columns
 
+
     # Rename column variants for consistency
     rename_map = {
         'Youngs_Modulus_GPa': 'Youngs_Modulus_GPa',
@@ -129,6 +131,7 @@ def load_and_prepare_data(csv_path):
 
 # Model Training + Evaluation
 def train_models(X, y):
+
     """Train KNN and RandomForest regressors, return best one."""
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -137,7 +140,7 @@ def train_models(X, y):
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # --- KNN Regressor ---
+    # KNN Regressor
     knn = KNeighborsRegressor(n_neighbors=7)
     knn.fit(X_train_scaled, y_train)
     knn_preds = knn.predict(X_test_scaled)
@@ -145,7 +148,7 @@ def train_models(X, y):
     knn_mae = mean_absolute_error(y_test, knn_preds)
     log.info(f"KNN Regressor: R² = {knn_r2:.3f}, MAE = {knn_mae:.3f}")
 
-    # --- Random Forest Regressor ---
+    # Random Forest Regressor 
     rf = RandomForestRegressor(n_estimators=200, random_state=42)
     rf.fit(X_train, y_train)
     rf_preds = rf.predict(X_test)
@@ -171,6 +174,7 @@ MODEL_PATH = "models/youngs_modulus_model.pkl"
 SCALER_PATH = "models/youngs_modulus_scaler.pkl"
 FEATURE_PATH = "models/youngs_modulus_features.json"
 
+
 def save_model(model, scaler, feature_cols):
     
     """Save model, scaler, and feature list to /models directory."""
@@ -182,6 +186,7 @@ def save_model(model, scaler, feature_cols):
         json.dump(feature_cols, f)
     log.info("Model and artifacts saved successfully.")
 
+
 def load_model():
     """Load model, scaler, and feature list for inference."""
     model = joblib.load(MODEL_PATH)
@@ -189,6 +194,7 @@ def load_model():
     with open(FEATURE_PATH) as f:
         feature_cols = json.load(f)
     return model, scaler, feature_cols
+
 
 def predict_youngs_modulus(input_dict):
     """Predict Young's modulus or other target property from composition."""

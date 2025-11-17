@@ -5,6 +5,7 @@ import pandas as pd
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from mp_api.client import MPRester
+from functools import lru_cache
 import streamlit as st
 
 # Load key from .env
@@ -88,6 +89,18 @@ def tidy_magnetism_safe(mag_json: dict) -> dict:
         "types_of_magnetic_species": ", ".join(mag_json.get("types_of_magnetic_species", [])),
         "total_magnetization_normalized_vol": mag_json.get("total_magnetization_normalized_vol")
     }
+
+
+# ----  Caching for mp-api queries  ----
+@st.cache_data(show_spinner=False)
+def cached_query_mp_advanced_filters(**kwargs):
+    """Cached wrapper to avoid re-fetching the same big MP dataset."""
+    return query_mp_advanced_filters(api_key=API_KEY, **kwargs)
+
+@st.cache_data(show_spinner=False)
+def cached_query_material(material_id):
+    """Cache single-material retrieval."""
+    return query_materials_project(material_id, API_KEY)
 
 
 def query_materials_project(term: str, api_key: Optional[str] = None) -> dict:
@@ -208,6 +221,7 @@ def query_materials_project(term: str, api_key: Optional[str] = None) -> dict:
             unified["robocrys_error"] = str(e)
 
     return unified
+
 
 def get_mp_property_dataframe(mp_json: Dict[str, Any]) -> pd.DataFrame:
     if not mp_json:

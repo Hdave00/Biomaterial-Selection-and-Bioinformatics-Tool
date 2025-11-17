@@ -39,6 +39,8 @@ from app.mp_integration import (
     query_materials_project,
     get_mp_property_dataframe,
     query_mp_advanced_filters,
+    cached_query_mp_advanced_filters,
+    cached_query_material,
 )
 
 # caching helpers
@@ -47,6 +49,7 @@ def load_dataset(path: str) -> Optional[pd.DataFrame]:
     if not os.path.exists(path):
         return None
     return pd.read_csv(path)
+
 
 # Minimal CSS tweaks
 st.markdown(
@@ -450,17 +453,15 @@ def run_selection_app():
     st.markdown("<div class='large-title'>Material Selection Module</div>", unsafe_allow_html=True)
     st.write('Find the best materials based on engineering, biological, or chemical requirements.')
 
-    # -------------------------
+
     # Use radio to control active tab
-    # -------------------------
     tab_choice = st.radio("Choose module", ['Local Search (Structural)', 'Materials Project Explorer'], index=0)
 
     # Load local datasets lazily
     local_unified = load_dataset('master_data/unified_material_data.csv')
 
-    # -------------------------
+
     # Local Search Section
-    # -------------------------
     if tab_choice == 'Local Search (Structural)':
         st.subheader('Structural / Mechanical Local Search')
 
@@ -548,7 +549,7 @@ def run_selection_app():
         st.subheader('Materials Project Explorer')
         st.write('Pick an element, or use the advanced filter panel to search MP summary data.')
 
-        # --- Quick Element Grid ---
+        # Quick Element Grid ---
         st.write('### Quick Element Selection')
         elements = [
             'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -563,13 +564,19 @@ def run_selection_app():
             'Fr','Ra'
         ]
 
+        # set the columns per row in UI, the for each element in row, set the row as elements contiguiously after each other,
+        # and the cols as columns as long as 10 
         cols_per_row = 10
         for i in range(0, len(elements), cols_per_row):
-            row = elements[i:i+cols_per_row]
+            row = elements[i:i + cols_per_row]
             cols = st.columns(len(row))
+
+            # for each element in row, keep track and track which button in which row was clicked, set that as the current element, 
+            # and DONT let it fall back to local database instead of Materials Project
             for j, el in enumerate(row):
                 if cols[j].button(el):
                     st.session_state.mp_selected_element = el
+                    st.session_state.mp_search_term = ""
 
         # Reset chosen material if element changed
         if st.session_state.get('last_selected_element') != st.session_state.get('mp_selected_element'):
@@ -577,11 +584,13 @@ def run_selection_app():
             st.session_state.view_compound = False
         st.session_state.last_selected_element = st.session_state.get('mp_selected_element')
 
-        # --- Show compounds for selected element ---
+        # Show compounds for selected element ---
         if st.session_state.get('mp_selected_element'):
             st.info(f"Selected element: {st.session_state.mp_selected_element}")
 
-            results = query_mp_advanced_filters(elements=[st.session_state.mp_selected_element])
+            with st.spinner("Fetching Materials Project data… this may take a minute ⏳"):
+                results = cached_query_mp_advanced_filters(elements=[st.session_state.mp_selected_element])
+
             if results:
                 st.session_state.mp_search_results = results
                 res_df = pd.DataFrame(results)
@@ -595,7 +604,10 @@ def run_selection_app():
 
                 # View detailed info button
                 if st.button("View selected material"):
-                    doc = query_materials_project(material_id)
+
+                    with st.spinner("Loading material details…"):
+                        doc = cached_query_material(material_id)
+
                     if doc:
                         st.session_state.mp_detailed_doc = doc
                         show_mp_card(doc)
@@ -698,7 +710,10 @@ def run_selection_app():
             # Direct MP search
             st.session_state.mp_detailed_doc = None
             st.session_state.mp_selected_material_id = None
-            doc = query_materials_project(current_search)
+
+            with st.spinner("Loading material details…"):
+                doc = cached_query_material(current_search)
+
             if doc:
                 st.session_state.mp_detailed_doc = doc
                 show_mp_card(doc)
@@ -707,8 +722,11 @@ def run_selection_app():
                 st.warning("No MP document found for that term.")
 
         elif do_mp_search and not current_search and st.session_state.mp_selected_element:
+
             # Fallback: element selection search
-            results = query_mp_advanced_filters(elements=[st.session_state.mp_selected_element])
+            with st.spinner("Fetching Materials Project data… this may take a minute ⏳"):
+                results = cached_query_mp_advanced_filters(elements=[st.session_state.mp_selected_element])
+
             if results:
                 st.session_state.mp_search_results = results
                 res_df = pd.DataFrame(results)
@@ -725,8 +743,12 @@ def run_selection_app():
 
                 if st.session_state.get('mp_chosen_material_id'):
                     chosen_id = st.session_state.mp_chosen_material_id
+
                     if st.button('View selected material (element results)'):
-                        doc = query_materials_project(chosen_id)
+
+                        with st.spinner("Loading material details…"):
+                            doc = cached_query_material(chosen_id)
+
                         if doc:
                             st.session_state.mp_detailed_doc = doc
                             show_mp_card(doc)
@@ -769,7 +791,9 @@ def run_selection_app():
             if q_is_stable:
                 kw['is_stable'] = True
 
-            results = query_mp_advanced_filters(**kw)
+            with st.spinner("Fetching Materials Project data… this may take a minute ⏳"):
+                results = cached_query_mp_advanced_filters(**kw)
+
             if results:
                 st.session_state.mp_search_results = results
                 res_df = pd.DataFrame(results)
@@ -786,8 +810,12 @@ def run_selection_app():
 
                 if st.session_state.get('mp_chosen_material_id'):
                     chosen_id = st.session_state.mp_chosen_material_id
+
                     if st.button('View selected material (advanced results)'):
-                        doc = query_materials_project(chosen_id)
+
+                        with st.spinner("Loading material details…"):
+                            doc = cached_query_material(chosen_id)
+
                         if doc:
                             st.session_state.mp_detailed_doc = doc
                             show_mp_card(doc)
