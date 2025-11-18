@@ -481,7 +481,7 @@ def run_selection_app():
                 min_youngs = st.number_input("Min Young's Modulus (GPa)", 0.0, 500.0, 100.0)
                 min_tensile = st.number_input('Min Tensile Strength (MPa)', 0.0, 3000.0, 200.0)
 
-                fallback_to_mp = st.checkbox('If no local matches, fallback to Materials Project?', value=True)
+                fallback_to_mp = st.checkbox('If no local matches, fallback to Materials Project?', value=False)
 
             with col_b:
                 st.write('')
@@ -516,7 +516,7 @@ def run_selection_app():
 
                 # fallback to MP
                 if results.empty and fallback_to_mp:
-                    st.info('No local results — attempting Materials Project fallback.')
+                    st.info('No local results, attempting Materials Project fallback.')
                     mp_term = term or free_text or pick_from_list
                     if mp_term:
                         mp_json = query_materials_project(mp_term)
