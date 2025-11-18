@@ -55,14 +55,12 @@ log = logging.getLogger(__name__)
 
 # Utility functions
 def extract_symbol(col_name):
-
     """Extract element symbol from strings like 'Cerium (Ce)Ce' or leave unchanged."""
     m = re.search(r"\(([^)]+)\)", col_name)
     return m.group(1) if m else col_name.strip()
 
 
 def rename_columns(df):
-
     """Standardize columns to element symbols and simpler property names."""
     rename_map = {}
     for col in df.columns:
@@ -79,7 +77,7 @@ def rename_columns(df):
 def load_and_prepare_data(csv_path):
     """
     Load unified materials dataset, clean columns, handle duplicates,
-    and prepare numeric features for Young’s modulus prediction.
+    and prepare numeric features for Youngs modulus prediction.
     """
 
     df = pd.read_csv(csv_path)
@@ -87,20 +85,22 @@ def load_and_prepare_data(csv_path):
     # Drop empty columns and rows with missing target
     df = df.dropna(axis=1, how='all').dropna(subset=['Youngs_Modulus_GPa'], how='any')
 
-    # Deduplicate duplicate column names manually
-    seen = {}
-    new_columns = []
-    for col in df.columns:
-        if col in seen:
-            seen[col] += 1
-            new_columns.append(f"{col}_{seen[col]}")
+    # Automatically merge duplicate numeric columns by averaging
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    base_map = {}
+
+    for col in numeric_cols:
+        base = col.split(".")[0]
+        base_map.setdefault(base, []).append(col)
+
+    for base, cols in base_map.items():
+        if len(cols) > 1:
+            df[base] = df[cols].mean(axis=1)
+            df.drop(columns=cols, inplace=True)
         else:
-            seen[col] = 0
-            new_columns.append(col)
-    df.columns = new_columns
+            if cols[0] != base:
+                df.rename(columns={cols[0]: base}, inplace=True)
 
-
-    # Rename column variants for consistency
     rename_map = {
         'Youngs_Modulus_GPa': 'Youngs_Modulus_GPa',
         'Elastic_Modulus_GPa': 'Youngs_Modulus_GPa',
@@ -113,7 +113,7 @@ def load_and_prepare_data(csv_path):
 
     target_col = 'Youngs_Modulus_GPa'
     if target_col not in df.columns:
-        raise ValueError("No Young’s modulus column found in dataset!")
+        raise ValueError("No Youngs modulus column found in dataset!")
 
     numeric_df = df.select_dtypes(include=[np.number])
     feature_cols = [c for c in numeric_df.columns if c != target_col]
@@ -127,20 +127,22 @@ def load_and_prepare_data(csv_path):
     log.info(f"Loaded {len(df)} materials, {len(feature_cols)} numeric features.")
     log.info(f"Predicting target: {target_col}")
 
+    print("TRAINED FEATURE COLUMNS:")
+    for f in feature_cols:
+        print(f)
+
     return X, y, feature_cols
+
 
 # Model Training + Evaluation
 def train_models(X, y):
-
     """Train KNN and RandomForest regressors, return best one."""
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # KNN requires scaling; RandomForest does not
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # KNN Regressor
     knn = KNeighborsRegressor(n_neighbors=7)
     knn.fit(X_train_scaled, y_train)
     knn_preds = knn.predict(X_test_scaled)
@@ -148,7 +150,6 @@ def train_models(X, y):
     knn_mae = mean_absolute_error(y_test, knn_preds)
     log.info(f"KNN Regressor: R² = {knn_r2:.3f}, MAE = {knn_mae:.3f}")
 
-    # Random Forest Regressor 
     rf = RandomForestRegressor(n_estimators=200, random_state=42)
     rf.fit(X_train, y_train)
     rf_preds = rf.predict(X_test)
@@ -156,7 +157,6 @@ def train_models(X, y):
     rf_mae = mean_absolute_error(y_test, rf_preds)
     log.info(f"RandomForest: R² = {rf_r2:.3f}, MAE = {rf_mae:.3f}")
 
-    # Choose best model
     if rf_r2 > knn_r2:
         log.info("Using RandomForestRegressor as final model.")
         best_model = rf
@@ -176,7 +176,6 @@ FEATURE_PATH = "models/youngs_modulus_features.json"
 
 
 def save_model(model, scaler, feature_cols):
-    
     """Save model, scaler, and feature list to /models directory."""
     os.makedirs("models", exist_ok=True)
     joblib.dump(model, MODEL_PATH)
@@ -185,27 +184,6 @@ def save_model(model, scaler, feature_cols):
     with open(FEATURE_PATH, "w") as f:
         json.dump(feature_cols, f)
     log.info("Model and artifacts saved successfully.")
-
-
-def load_model():
-    """Load model, scaler, and feature list for inference."""
-    model = joblib.load(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH) if os.path.exists(SCALER_PATH) else None
-    with open(FEATURE_PATH) as f:
-        feature_cols = json.load(f)
-    return model, scaler, feature_cols
-
-
-def predict_youngs_modulus(input_dict):
-    """Predict Young's modulus or other target property from composition."""
-    model, scaler, feature_cols = load_model()
-
-    # Build DataFrame from input dictionary
-    X_input = pd.DataFrame([[input_dict.get(col, 0) for col in feature_cols]], columns=feature_cols)
-    if scaler is not None:
-        X_input = scaler.transform(X_input)
-    prediction = model.predict(X_input)
-    return float(prediction[0])
 
 
 # Main entrypoint for training

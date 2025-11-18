@@ -295,35 +295,36 @@ def run_ml_app():
                 elongation = st.number_input("Elongation (%)", min_value=0.0, max_value=100.0, value=10.0, step=0.5)
 
             with col2:
-                poissons = st.number_input("Poisson’s Ratio", min_value=0.0, max_value=0.6, value=0.3, step=0.01)
-                fracture_toughness = st.number_input("Fracture Toughness (MPa√m)", min_value=0.0, max_value=200.0, value=50.0, step=1.0)
-                melting_point = st.number_input("Melting Point (°C)", min_value=0.0, max_value=4000.0, value=1500.0, step=10.0)
-                thermal_cond = st.number_input("Thermal Conductivity (W/mK)", min_value=0.0, max_value=1000.0, value=100.0, step=1.0)
-                specific_heat = st.number_input("Specific Heat (J/g·K)", min_value=0.0, max_value=10.0, value=0.5, step=0.01)
+                poisson = st.number_input("Poisson’s Ratio", min_value=0.0, max_value=0.6, value=0.3, step=0.01)
+                hardness_hv = st.number_input("Hardness (HV)", min_value=0.0, max_value=2000.0, value=150.0)
+                shear_modulus = st.number_input("Shear Modulus (GPa)", min_value=0.0, max_value=1000.0, value=80.0)
 
-            st.markdown("#### Material Type")
-            material_type = st.selectbox("Select Material Type", ["Metal", "Ceramic", "Polymer", "Composite"])
+                # ----NOTE---- 
+                # These fields do NOT go into the prediction, maybe with a future dataset we might be able to make use of these example fields
+                    # fracture_toughness = st.number_input("Fracture Toughness (MPa√m)", min_value=0.0, max_value=200.0, value=50.0, step=1.0)
+                    # melting_point = st.number_input("Melting Point (°C)", min_value=0.0, max_value=4000.0, value=1500.0, step=10.0)
+                    # thermal_cond = st.number_input("Thermal Conductivity (W/mK)", min_value=0.0, max_value=1000.0, value=100.0, step=1.0)
+                    # specific_heat = st.number_input("Specific Heat (J/g·K)", min_value=0.0, max_value=10.0, value=0.5, step=0.01)
+
+            # NOTE ---- same goes for this feild, i do not currently have data to predict based on one-hot encoding for different types pf materials and 
+            # their youngs modulus. Maybe with a dataset in the future
+            # st.markdown("#### Material Type")
+            # material_type = st.selectbox("Select Material Type", ["Metal", "Ceramic", "Polymer", "Composite"])
 
             submitted = st.form_submit_button("Predict Young’s Modulus")
 
         if submitted:
 
-            # --- One-hot encoding for material type ---
+            # --- Only include features that exist in the training model ---
             input_dict = {
                 "Density_gcm3": density,
                 "Hardness_BHN": hardness,
+                "Hardness_HV": hardness_hv,
                 "Tensile_Strength_MPa": tensile,
                 "Yield_Strength_MPa": yield_strength,
                 "Elongation_percent": elongation,
-                "Poissons_Ratio": poissons,
-                "Fracture_Toughness_MPam05": fracture_toughness,
-                "Melting_Point_C": melting_point,
-                "Thermal_Conductivity_WmK": thermal_cond,
-                "Specific_Heat_JgK": specific_heat,
-                "Material_Type_Metal": 1 if material_type == "Metal" else 0,
-                "Material_Type_Ceramic": 1 if material_type == "Ceramic" else 0,
-                "Material_Type_Polymer": 1 if material_type == "Polymer" else 0,
-                "Material_Type_Composite": 1 if material_type == "Composite" else 0,
+                "Poisson_Ratio": poisson,
+                "Shear_Modulus_GPa": shear_modulus,
             }
 
             result = predict_youngs_modulus(youngs_model, input_dict)
@@ -420,6 +421,8 @@ def run_ml_app():
             except Exception as e:
                 st.error(f"Prediction failed: {e}")
 
+
+    # Oligomeric State predictor ----
     with tabs[4]:
         st.subheader("Protein Oligomeric State Predictor")
         st.markdown(
