@@ -216,7 +216,7 @@ with st.container():
 # --- Footer ---
 st.markdown("""
 <div class='footer'>
-&copy; 2025 Biomat project | Working prototype for scientific biomaterial exploration
+&copy; 2025 Biomaterial and Biotechnology project | Working prototype for scientific biomaterial exploration
 </div>
 """, unsafe_allow_html=True)
 
@@ -225,10 +225,10 @@ st.markdown("</div>", unsafe_allow_html=True)
 # --- Routing ---
 page = st.session_state.get("page", "home")
 if page == "ml":
-    module = importlib.import_module("app.main_app")
+    module = importlib.import_module("app.ml_app")
     module.run_ml_app()
 elif page == "selection":
-    module = importlib.import_module("app.visualization")
+    module = importlib.import_module("app.material_app")
     module.run_selection_app()
 elif page == "hra":
     module = importlib.import_module("app.human_atlas.hra_visualizer")

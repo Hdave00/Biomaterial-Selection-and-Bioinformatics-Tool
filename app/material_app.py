@@ -35,10 +35,13 @@ try:
 except Exception:
     _HAS_PY3DMOL = False
 
+from src.utils import data_registry, filter_engine
+
+# query_mp_advanced_filters is not being called directly due to extremely high data demands, its wrapped in caching that is called by the caching helper functions
+# in mp_integration by "cached_query_mp_advanced_filters" and "cached_query_material"
 from app.mp_integration import (
     query_materials_project,
     get_mp_property_dataframe,
-    query_mp_advanced_filters,
     cached_query_mp_advanced_filters,
     cached_query_material,
 )
@@ -51,7 +54,7 @@ def load_dataset(path: str) -> Optional[pd.DataFrame]:
     return pd.read_csv(path)
 
 
-# Minimal CSS tweaks
+# CSS for the page
 st.markdown(
     """
     <style>
@@ -208,7 +211,7 @@ def extract_cif_text(structure) -> Optional[str]:
     if isinstance(structure, str):
         txt = structure.strip()
 
-        # check heuristic: if it looks like a CIF or POSCAR, return it
+        # main heuristic: if it looks like a CIF or POSCAR, return it
         if (
             txt.startswith("data_")
             or txt.lower().startswith("data_")
@@ -226,7 +229,7 @@ def extract_cif_text(structure) -> Optional[str]:
     try:
         if hasattr(structure, "to"):
 
-            # many versions: try 'cif' then 'poscar'
+            # try multiple versions, 'cif' then 'poscar'
             for fmt in ("cif", "poscar", "json"):
                 try:
                     txt = structure.to(fmt=fmt)
@@ -375,6 +378,7 @@ def show_mp_card(mp_json: dict):
 
         with st.expander(title, expanded=False):
             if isinstance(data, (dict, list)):
+
                 cleaned = [d for d in safe_iter(data) if d]
                 if not cleaned:
                     st.caption("No data available.")
@@ -453,96 +457,208 @@ def run_selection_app():
     st.markdown("<div class='large-title'>Material Selection Module</div>", unsafe_allow_html=True)
     st.write('Find the best materials based on engineering, biological, or chemical requirements.')
 
+    tab_choice = st.radio("Choose module", ['Local Search (Database)', 'Materials Project Explorer'], index=0)
 
-    # Use radio to control active tab
-    tab_choice = st.radio("Choose module", ['Local Search (Structural)', 'Materials Project Explorer'], index=0)
-
-    # Load local datasets lazily
+    # tis is a temp fix: Load local dataset BEFORE the branches
     local_unified = load_dataset('master_data/unified_material_data.csv')
 
+    # load structural by default (cached)
+    structural_df = load_dataset(data_registry.get_dataset_path("structural"))
+    # load others lazily only when needed
+    corrosion_df_raw = None
+    polymers_df_raw = None
+    hea_df_raw = None
 
-    # Local Search Section
-    if tab_choice == 'Local Search (Structural)':
-        st.subheader('Structural / Mechanical Local Search')
+    if tab_choice == 'Local Search (Database)':
+        st.subheader('Local Database Search')
 
-        if local_unified is None:
-            st.error('Local materials dataset not found (master_data/unified_material_data.csv).')
-        else:
-            df = local_unified
+        # dataset selector nested inside the Local Search UI
+        domain = st.selectbox("Select data domain", ["Structural Materials", "High-Entropy Alloys", "Corrosion Database", "Polymers"])
 
-            col_a, col_b = st.columns([2, 1])
-            with col_a:
+        # prepare dataset based on selection
+        dataset_key = {
+            "Structural Materials": "structural",
+            "High-Entropy Alloys": "high_entropy",
+            "Corrosion Database": "corrosion",
+            "Polymers": "polymers"
+        }[domain]
+
+        # load and prepare using the registry (we'll call the module loader directly and cache via st.cache_data)
+        @st.cache_data(show_spinner=False)
+        def load_prepared(key: str):
+            path = data_registry.get_dataset_path(key)
+            if not path or not os.path.exists(path):
+                return None, {}
+            raw = pd.read_csv(path, low_memory=False)
+            # call appropriate prepare function
+            if key == "structural":
+                return data_registry.prepare_structural_df(raw)
+            if key == "corrosion":
+                return data_registry.prepare_corrosion_df(raw)
+            if key == "polymers":
+                return data_registry.prepare_polymers_df(raw)
+            if key == "high_entropy":
+                return data_registry.prepare_high_entropy_df(raw)
+            return data_registry.prepare_structural_df(raw)
+
+        df, meta = load_prepared(dataset_key)
+        if df is None:
+            st.error(f"Dataset for '{domain}' not found at {data_registry.get_dataset_path(dataset_key)}")
+            return
+
+        st.info(f"Loaded {meta.get('nrows', '?')} rows, columns: {', '.join(meta.get('columns', [])[:8])}...")
+
+        # build dynamic filters depending on dataset
+        st.markdown("### Filters")
+        col1, col2 = st.columns(2)
+
+        filter_specs = {}
+
+        # A: structural filters (keep original structural inputs plus free text)
+        if dataset_key == "structural":
+            with col1:
                 pick_from_list = st.selectbox(
                     'Pick material family (optional)',
-                    [''] + sorted(df['Material_Type'].dropna().unique().tolist())
+                    [''] + sorted(df['Material_Type'].dropna().unique().tolist()) if 'Material_Type' in df.columns else ['']
                 )
                 free_text = st.text_input('Or type a material name / formula (optional)', '')
-
-                min_youngs = st.number_input("Min Young's Modulus (GPa)", 0.0, 500.0, 100.0)
-                min_tensile = st.number_input('Min Tensile Strength (MPa)', 0.0, 3000.0, 200.0)
-
+            with col2:
+                min_youngs = st.number_input("Min Young's Modulus (GPa)", 0.0, 500.0, 0.0)
+                min_tensile = st.number_input('Min Tensile Strength (MPa)', 0.0, 3000.0, 0.0)
                 fallback_to_mp = st.checkbox('If no local matches, fallback to Materials Project?', value=False)
 
-            with col_b:
-                st.write('')
-                st.write('')
-                st.write('Quick actions')
-                do_search = st.button('Search Local')
+            # filters
+            if pick_from_list:
+                filter_specs['Material_Type'] = {"values": [pick_from_list]}
+            if free_text:
+                filter_specs['free_text'] = free_text
+            filter_specs['Youngs_Modulus_GPa'] = {"min": min_youngs}
+            filter_specs['Tensile_Strength_MPa'] = {"min": min_tensile}
 
-            if do_search:
-                term = free_text.strip() or pick_from_list or ''
+        # B: high-entropy alloys filters
+        elif dataset_key == "high_entropy":
 
-                mask = pd.Series([True] * len(df))
-                if term:
-                    mask &= (
-                        df['Material_Type'].str.contains(term, case=False, na=False) |
-                        df[df.columns[0]].astype(str).str.contains(term, case=False, na=False)
-                    )
+            # Autofill candidates from IDENTIFIER and FORMULA
+            default_options = sorted(
+                df['FORMULA'].dropna().unique().tolist()
+                if 'FORMULA' in df.columns else []
+            )
 
-                mask &= (df['Youngs_Modulus_GPa'] >= min_youngs) & (df['Tensile_Strength_MPa'] >= min_tensile)
-                results = df[mask]
+            with col1:
+                selected_formula = st.selectbox(
+                    "Select formula (autofill optional)",
+                    [''] + default_options
+                )
+                free_text = st.text_input(
+                    "Search HEA by ID, composition, or microstructure",
+                    selected_formula
+                )
 
-                st.session_state.local_results = results
+            with col2:
+                numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+                chosen_prop = st.selectbox(
+                    "Numeric property to filter",
+                    [''] + numeric_cols
+                )
+                min_value = st.number_input("Minimum value", 0.0, 1e9, 0.0)
 
-                display_results(results, x='Youngs_Modulus_GPa', y='Tensile_Strength_MPa', color='Material_Type')
+            # build filters
+            if free_text:
+                filter_specs['free_text'] = free_text
+            if chosen_prop:
+                filter_specs[chosen_prop] = {"min": min_value}
 
-                if results is not None and not results.empty:
-                    st.info('Pick a material from the local results to view details or fetch MP data:')
-                    st.selectbox(
-                        'Select from Local Results',
-                        results.iloc[:, 0].astype(str).tolist(),
-                        key='local_selected'
-                    )
+        # C: corrosion
+        elif dataset_key == "corrosion":
+            with col1:
+                free_text = st.text_input("Search corrosion dataset (material, environment, UNS, comments)", "")
+                material_group = st.text_input("Material Group (optional)", "")
+            with col2:
+                temp_min = st.number_input("Min Temperature (deg C) (optional)", -100.0, 2000.0, value=None)
+                rate_min = st.number_input("Min Rate (mm/yr) (optional)", 0.0, 1e6, value=None)
+            if free_text:
+                filter_specs['free_text'] = free_text
+            if material_group:
+                filter_specs['Material_Group'] = {"values": [material_group]}
+            if temp_min is not None:
+                # Attempt to use Temperature_deg_C if present
+                if "Temperature_deg_C" in df.columns:
+                    filter_specs["Temperature_deg_C"] = {"min": temp_min}
+            if rate_min is not None:
+                # pick the numeric rate column created by prepare (if present)
+                rate_cols = [c for c in df.columns if c.lower().startswith("rate") and "numeric" in c]
+                if rate_cols:
+                    filter_specs[rate_cols[0]] = {"min": rate_min}
+                else:
+                    st.warning("No numeric Rate column available in this corrosion dataset. Try free-text or other filters.")
 
-                # fallback to MP
-                if results.empty and fallback_to_mp:
-                    st.info('No local results, attempting Materials Project fallback.')
-                    mp_term = term or free_text or pick_from_list
-                    if mp_term:
-                        mp_json = query_materials_project(mp_term)
-                        if mp_json:
-                            st.success('Found matches in Materials Project (fallback).')
-                            show_mp_card(mp_json)
-                            mp_df = get_mp_property_dataframe(mp_json)
+        # D: polymers
+        elif dataset_key == "polymers":
+            with col1:
+                free_text = st.text_input("Search polymers (name, PID, SMILES, class)", "")
+                polymer_class = st.selectbox("Polymer Class (optional)", [''] + sorted(df['Polymer_Class'].dropna().unique().tolist()) if 'Polymer_Class' in df.columns else [''])
+            with col2:
+                tg_min = st.number_input("Min Tg (°C) (optional)", -500.0, 1000.0, value=None)
+                density_min = st.number_input("Min Density (g/cm3) (optional)", 0.0, 50.0, value=None)
+            if free_text:
+                filter_specs['free_text'] = free_text
+            if polymer_class:
+                filter_specs['Polymer_Class'] = {"values": [polymer_class]}
+            if tg_min is not None and 'Tg' in df.columns:
+                filter_specs['Tg'] = {"min": tg_min}
+            if density_min is not None and 'Density' in df.columns:
+                filter_specs['Density'] = {"min": density_min}
 
-                            #render_property_comparison(df_local=df, mp_df=mp_df, selected_name=mp_json.get('pretty_formula', mp_term))
-                        else:
-                            st.warning('No fallback match found on Materials Project.')
+        # perform search when user clicks search
+        do_search = st.button('Search Local')
+        if do_search:
+            results, missing_cols = filter_engine.apply_filters(df, filter_specs)
 
-                # show MP details for picked local material
-                if st.session_state.local_selected:
-                    if st.button('Show Materials Project details for selected material'):
-                        picked = st.session_state.local_selected
-                        mp_json = query_materials_project(picked)
-                        if mp_json:
-                            show_mp_card(mp_json)
-                            mp_df = get_mp_property_dataframe(mp_json)
+            if missing_cols:
+                st.warning(f"The following filter columns were not available in this dataset: {missing_cols}. Try using other filters or free-text search.")
 
-                            # render_property_comparison(df_local=df, mp_df=mp_df, selected_name=mp_json.get('pretty_formula', picked))
-                        else:
-                            st.warning('Materials Project has no entry for the selected local material.')
+            # show results via your existing display function
+            st.session_state.local_results = results
+            display_results(results, x='Youngs_Modulus_GPa' if 'Youngs_Modulus_GPa' in df.columns else None,
+                            y='Tensile_Strength_MPa' if 'Tensile_Strength_MPa' in df.columns else None,
+                            color='Material_Type' if 'Material_Type' in df.columns else None)
 
-    # -------------------------
+            if not results.empty:
+                st.info('Pick a record from the results to view details or fetch MP data:')
+                st.selectbox(
+                    'Select from Local Results',
+                    results.iloc[:, 0].astype(str).tolist(),
+                    key='local_selected'
+                )
+
+            # fallback to MP for structural domain only
+            if dataset_key == "structural" and results.empty and fallback_to_mp:
+                st.info('No local results, attempting Materials Project fallback.')
+                mp_term = filter_specs.get('free_text') or pick_from_list or ''
+                if mp_term:
+                    mp_json = query_materials_project(mp_term)
+                    if mp_json:
+                        st.success('Found matches in Materials Project (fallback).')
+                        show_mp_card(mp_json)
+                    else:
+                        st.warning('No fallback match found on Materials Project.')
+
+            # allow fetching MP details for a selected local record (structural only)
+            if 'local_selected' in st.session_state and st.session_state.local_selected:
+                if st.button('Show Materials Project details for selected material'):
+                    picked = st.session_state.local_selected
+                    mp_json = query_materials_project(picked)
+                    if mp_json:
+                        show_mp_card(mp_json)
+                    else:
+                        st.warning('Materials Project has no entry for the selected local material.')
+
+    # Materials Project Explorer tab left unchanged
+    if tab_choice == 'Materials Project Explorer':
+        # existing logic continues unchanged
+        pass
+
+
     # Materials Project Explorer Section
     # -------------------------
     elif tab_choice == 'Materials Project Explorer':
@@ -664,11 +780,8 @@ def run_selection_app():
                         if local_unified is not None:
                             mp_df = get_mp_property_dataframe(doc)
 
-                            #render_property_comparison(
-                                #df_local=local_unified,
-                                #mp_df=mp_df,
-                                #selected_name=doc.get('pretty_formula', material_id)
-                            #)
+                            #render_property_comparison(df_local=local_unified, mp_df=mp_df, selected_name=doc.get('pretty_formula', material_id))
+
             else:
                 st.warning("No compounds found for this element.")
         st.write("---")
