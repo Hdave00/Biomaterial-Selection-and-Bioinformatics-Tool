@@ -15,3 +15,5 @@ templates/
 src/ml_pipelines/protein_ligand_binding_predictor.py
 src/features/
 src/master_index.py
+__pycache__/
+*.pyc
