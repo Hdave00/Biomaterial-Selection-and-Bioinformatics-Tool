@@ -2,6 +2,24 @@
 import sys
 import streamlit as st
 import importlib
+from datetime import datetime, timedelta, timezone
+from dateutil import parser
+import logging
+
+
+# Logging for version tracking server side
+__version__ = "1.0 beta"
+__release_date__ = "2025-11-20"
+__codename__ = "Augustus"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+logging.info(f"Launching Biomaterial Platform — v{__version__} ({__codename__})")
+
 
 st.set_page_config(page_title="Biomaterial and Bioinformatics Platform", layout="wide")
 
@@ -154,7 +172,18 @@ st.markdown("<div class='main-container'>", unsafe_allow_html=True)
 st.title("Biomaterial and Bioinformatics Novel Platform")
 st.markdown("<p class='header-subtext'>Machine Learning-driven discovery, prediction, and selection of advanced biomaterials, unified in one pragmatic platform.</p>", unsafe_allow_html=True)
 
-# --- Domain Overview ---
+
+with st.sidebar:
+    st.markdown(f"""
+    <div style="opacity: 0.6; font-size: 0.9rem;">
+        <strong>Biomat AI Platform</strong><br>
+        Version: <code>{__version__}</code><br>
+        Codename: <em>{__codename__}</em>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# Domain Overview ---
 col1, col2, col3 = st.columns(3)
 
 # ML Module

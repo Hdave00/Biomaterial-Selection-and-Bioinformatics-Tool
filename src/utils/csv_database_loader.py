@@ -71,15 +71,17 @@ def load_csv_to_sqlite(csv_path, db_path, table_name, if_exists='replace'):
     print(f"Loaded {len(df)} rows into {table_name}")
 
 
-def query_table(db_path, table_name, columns="*", where=None, limit=None):
+def query_table(db_path, table_name, where: dict | None = None):
+
     """
-    Query rows from an SQLite table.
+    Query a SQLite table and return a DataFrame.
+    If `where` is provided, it should be a dict of {column: value}.
+
+    NOTE --- This function is the one called in materials_app.py in the local search render to query the database of different domains.
 
     :param db_path: Path to SQLite DB
     :param table_name: Name of the table
-    :param columns: string or list of columns to select
     :param where: optional WHERE clause (string)
-    :param limit: optional LIMIT integer
 
     Example:
         query_table("materials.db", "structural_materials",
@@ -89,27 +91,27 @@ def query_table(db_path, table_name, columns="*", where=None, limit=None):
     """
 
     # clean column format and parameterized queries to prevent injection 
-    if isinstance(columns, list):
-        columns = ", ".join(columns)
-
-    sql = f"SELECT {columns} FROM {table_name}"
-
-    # prevent dangerous table names that may not be suitable or may break functionality
-    if not table_name.replace("_", "").isalnum():
-        raise ValueError("Invalid table name")
-    
-    if where:
-        sql += f" WHERE {where}"
-
-    if limit:
-        sql += f" LIMIT ?"
-        if where_params:
-            where_params = list(where_params) + [limit]
-        else:
-            where_params = [limit]
-
     conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query(sql, conn, params=where_params)
-    conn.close()
 
+    sql = f"SELECT * FROM {table_name}"
+
+    params = None
+
+    if where:
+        conditions = []
+        params = []
+
+        for col, value in where.items():
+            conditions.append(f"{col} = ?")
+            params.append(value)
+
+        sql += " WHERE " + " AND ".join(conditions)
+
+    # Only pass params if they exist
+    if params is not None:
+        df = pd.read_sql_query(sql, conn, params=params)
+    else:
+        df = pd.read_sql_query(sql, conn)
+
+    conn.close()
     return df

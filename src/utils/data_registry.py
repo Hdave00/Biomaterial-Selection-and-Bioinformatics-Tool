@@ -12,6 +12,108 @@ DATASET_PATHS = {
     "polymers": "master_data/polymer_tg/polymer_lookup_data.csv",
 }
 
+
+# Schema + example registry for all 5 domains
+
+schema_registry = {
+    "structural": {
+        "title": "Structural Materials",
+        "table": "structural_materials",
+        "database": "materials.db",
+        "description": "General engineering-grade structural materials with mechanical properties.",
+        "columns": [
+            "Material_ID", "Material_Name", "Material_Type", "Standard",
+            "Tensile_Strength_MPa", "Yield_Strength_MPa", "Youngs_Modulus_GPa",
+            "Density_gcm3", "Hardness_HV", "Notes"
+        ],
+        "example": {
+            "Material_Name": "STEEL SAE 1015",
+            "Material_Type": "STEEL",
+            "Youngs_Modulus_GPa": 207,
+            "Tensile_Strength_MPa": 421,
+            "Density_gcm3": 7.86
+        }
+    },
+
+    "high_entropy": {
+        "title": "High-Entropy Alloys",
+        "table": "high_entropy_alloys",
+        "database": "materials.db",
+        "description": "HEA compositions, mechanical properties, microstructure and processing parameters.",
+        "columns": [
+            "IDENTIFIER: Reference ID", "FORMULA", "PROPERTY: Microstructure",
+            "PROPERTY: Processing method", "PROPERTY: BCC/FCC/other",
+            "PROPERTY: grain size (µm)", "PROPERTY: Exp. Density (g/cm³)",
+            "PROPERTY: HV", "PROPERTY: Type of test",
+            "PROPERTY: Test temperature (°C)", "PROPERTY: YS (MPa)",
+            "PROPERTY: UTS (MPa)", "PROPERTY: Elongation (%)",
+            "PROPERTY: Exp. Young modulus (GPa)"
+        ],
+        "example": {
+            "FORMULA": "Al0.25 Co1 Fe1 Ni1",
+            "PROPERTY: Microstructure": "FCC",
+            "PROPERTY: HV": 138,
+            "PROPERTY: YS (MPa)": 158,
+            "PROPERTY: Exp. Density (g/cm³)": 7.9
+        }
+    },
+
+    "corrosion": {
+        "title": "Corrosion Database",
+        "table": "corr_lookup",
+        "database": "corrosion.db",
+        "description": "Corrosion rates, materials, UNS numbers, environments and test conditions.",
+        "columns": [
+            "Environment", "Material Group", "Material Family", "Material",
+            "Rate (mm/yr) or Rating", "Rate (mils/yr) or Rating",
+            "Localized Attack", "UNS", "Temperature (deg C)", "Duration"
+        ],
+        "example": {
+            "Environment": "Acetaldehyde",
+            "Material Group": "Magnesium and alloys",
+            "Material": "Magnesium",
+            "Rate (mm/yr)": "D (Poor)",
+            "UNS": ""
+        }
+    },
+
+    "polymers": {
+        "title": "Polymers",
+        "table": "polymer_lookup",
+        "database": "polymer.db",
+        "description": "Polymer Tg, SMILES structures, PID database metadata and polymer classes.",
+        "columns": [
+            "SMILES", "Tg", "PID", "Polymer Class", "name",
+            "manufacturer", "Density"
+        ],
+        "example": {
+            "SMILES": "*C(C)(C(=O)OCCO)C*",
+            "Tg": 394.0,
+            "Polymer Class": "PHEMA",
+            "Density": 1.15
+        }
+    },
+
+    "cytotoxicity": {
+        "title": "Cytotoxicity",
+        "table": "cytotoxicity_lookup",
+        "database": "cytotoxicity.db",
+        "description": "CC50 toxicity values of ionic liquids and compounds tested on eukaryotic cell lines.",
+        "columns": [
+            "Name", "CAS", "Clean_Name", "CC50_mM",
+            "Cell_line", "Method", "Mw"
+        ],
+        "example": {
+            "Name": "E-N-(...)propanoate",
+            "CAS": "136584-98-0",
+            "CC50_mM": 0.631,
+            "Cell_line": "HaCat",
+            "Method": "MTT"
+        }
+    }
+}
+
+
 def get_dataset_path(key: str) -> Optional[str]:
     """Return filesystem path for given dataset key, or None if unknown."""
     return DATASET_PATHS.get(key)
