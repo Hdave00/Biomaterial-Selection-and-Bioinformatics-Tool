@@ -1,566 +1,555 @@
-# app/visualization.py
-"""
-Streamlit UI for Material Selection + Materials Project integration.
-
-Features implemented:
-- Local-only search for Structural / Mechanical (as before) with optional free-text and optional pick-from-list
-- Automatic fallback to Materials Project when local search returns no results *if* user enables fallback
-- A separate "Materials Project Explorer" tab that provides a periodic-element grid, quick element-based searches
-  and an advanced filter form that maps directly to mp_api's documented search() parameters.
-- Material detail view shows summary fields, elasticity/thermo/bonds/etc (if available via mp_integration.query_materials_project)
-  and attempts a py3Dmol rendering when a structure is present; otherwise falls back to showing CIF/text.
-
-Notes:
-- This file expects `app/mp_integration.py` to expose three functions:
-    * query_materials_project(query: str | material_id) -> dict | None
-    * get_mp_property_dataframe(mp_json: dict) -> pandas.DataFrame
-    * query_mp_advanced_filters(...) -> list[dict] | None
-  The advanced filter function should accept only *official* mp_api search() kwargs (e.g. elements, formula, band_gap, density, energy_above_hull, is_stable, etc.)
-- MP API key should be loaded inside mp_integration (from .env). The UI does NOT ask the user for an API key.
-
-"""
-
 import streamlit as st
-
-st.markdown("## Local Database Search")
-
-if not st.button("Activate Module"):
-    st.info("Click to load database module")
-    st.stop()
-
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import sys
 import os
+sys.dont_write_bytecode = True
+
+# ONLY lightweight imports at top level
 from typing import Optional, Any, Iterable
-from src.utils.csv_database_loader import query_table, get_db_path
-from src.utils import data_registry, filter_engine
-from src.utils.data_registry import schema_registry
-import sqlite3
-import json
 
-""" NOTE ---- PY3DMOL is too heavy for the free tier of streamlit, if used in future, use this method of loading
-# optional visualization helper, because app is apparently too heavy for streamlit in terms of JS
-_HAS_PY3DMOL = False
+def run_selection_app():
+    # ✅ MOVE all heavy imports INSIDE the function
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import sqlite3
+    import json
+    
+    # ✅ MOVE your module imports inside
+    try:
+        from src.utils.csv_database_loader import query_table, get_db_path
+        from src.utils import data_registry, filter_engine
+        from src.utils.data_registry import schema_registry
+        from app.mp_integration import (
+            query_materials_project,
+            get_mp_property_dataframe,
+            cached_query_mp_advanced_filters,
+            cached_query_material,
+        )
+    except ImportError as e:
+        st.error(f"Import error: {e}")
+        return
 
-def get_py3Dmol():
-    global _HAS_PY3DMOL
-    if not _HAS_PY3DMOL:
-        try:
-            import py3Dmol
-            _HAS_PY3DMOL = py3Dmol
-        except:
-            _HAS_PY3DMOL = None
-    return _HAS_PY3DMOL
-"""
+    st.markdown("## Local Database Search")
 
-@st.cache_resource
-def get_db_connection():
-    return sqlite3.connect(get_db_path("materials.db"), check_same_thread=False)
+    if not st.button("Activate Module"):
+        st.info("Click to load database module")
+        st.stop()
 
+    """ NOTE ---- PY3DMOL is too heavy for the free tier of streamlit, if used in future, use this method of loading
+    # optional visualization helper, because app is apparently too heavy for streamlit in terms of JS
+    _HAS_PY3DMOL = False
 
-# query_mp_advanced_filters is not being called directly due to extremely high data demands, its wrapped in caching that is called by the caching helper functions
-# in mp_integration by "cached_query_mp_advanced_filters" and "cached_query_material"
-from app.mp_integration import (
-    query_materials_project,
-    get_mp_property_dataframe,
-    cached_query_mp_advanced_filters,
-    cached_query_material,
-)
-
-
-# ---- caching helpers ----
-@st.cache_data(show_spinner=False)
-def load_dataset(path: str) -> Optional[pd.DataFrame]:
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path)
-
-
-# CSS for the page
-st.markdown(
+    def get_py3Dmol():
+        global _HAS_PY3DMOL
+        if not _HAS_PY3DMOL:
+            try:
+                import py3Dmol
+                _HAS_PY3DMOL = py3Dmol
+            except:
+                _HAS_PY3DMOL = None
+        return _HAS_PY3DMOL
     """
-    <style>
-    /* Base body text bigger */
-    div.stApp {
-    font-size: 1.25rem !important;
-    }
-    div.stApp *:not(pre):not(code) {
-        font-size: inherit !important;
-    }
 
-    /* Force black text inside expanders */
-    .stExpanderContent div {
-        color: #000000 !important;
-    }
-
-    pre, code {
-    font-size: 0.9rem !important;
-    overflow-x: auto !important;
-    white-space: pre-wrap !important;
-    }
-
-    /* Main title */
-    .large-title {
-        font-size: 3.5rem !important;
-        font-weight: 900 !important;
-        text-align: center;
-        color: #f0f0f0 !important;
-        margin-bottom: 1.5rem !important;
-    }
-
-    /* Subheaders */
-    h2, h3, h4 {
-        font-size: 2rem !important;
-        font-weight: 700 !important;
-    }
-
-    /* Expander headers */
-    .stExpanderHeader {
-        font-size: 1.5rem !important;
-        font-weight: 700 !important;
-    }
-
-    /* Metric text */
-    .stMetricValue {
-        font-size: 2.5rem !important;
-    }
-    .stMetricLabel {
-        font-size: 1.5rem !important;
-    }
-
-    /* Table text */
-    div.stDataFrame table td, div.stDataFrame table th {
-        font-size: 1.3rem !important;
-    }
-
-    /* Buttons */
-    button {
-        font-size: 1.4rem !important;
-        padding: 0.6rem 1.2rem !important;
-    }
-
-    /* Result / MP cards */
-    .result-card {
-        font-size: 1.3rem !important;
-        line-height: 1.6rem !important;
-        padding: 1rem !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+    @st.cache_resource
+    def get_db_connection():
+        return sqlite3.connect(get_db_path("materials.db"), check_same_thread=False)
 
 
-# ----- Session State Initialization -----
-# These keys are shared between tabs and should persist
-if "mp_selected_element" not in st.session_state:
-    st.session_state.mp_selected_element = None  
-
-if "mp_search_results" not in st.session_state:
-    st.session_state.mp_search_results = None   
-
-if "mp_selected_material_id" not in st.session_state:
-    st.session_state.mp_selected_material_id = None 
-
-if "mp_detailed_doc" not in st.session_state:
-    st.session_state.mp_detailed_doc = None
+    # query_mp_advanced_filters is not being called directly due to extremely high data demands, its wrapped in caching that is called by the caching helper functions
+    # in mp_integration by "cached_query_mp_advanced_filters" and "cached_query_material"
 
 
-# ----- Session State for Local Search -----
-if "local_results" not in st.session_state:
-    st.session_state.local_results = None
+    # ---- caching helpers ----
+    @st.cache_data(show_spinner=False)
+    def load_dataset(path: str) -> Optional[pd.DataFrame]:
+        if not os.path.exists(path):
+            return None
+        return pd.read_csv(path)
 
-if "local_selected" not in st.session_state:
-    st.session_state.local_selected = None
+
+    # CSS for the page
+    st.markdown(
+        """
+        <style>
+        /* Base body text bigger */
+        div.stApp {
+        font-size: 1.25rem !important;
+        }
+        div.stApp *:not(pre):not(code) {
+            font-size: inherit !important;
+        }
+
+        /* Force black text inside expanders */
+        .stExpanderContent div {
+            color: #000000 !important;
+        }
+
+        pre, code {
+        font-size: 0.9rem !important;
+        overflow-x: auto !important;
+        white-space: pre-wrap !important;
+        }
+
+        /* Main title */
+        .large-title {
+            font-size: 3.5rem !important;
+            font-weight: 900 !important;
+            text-align: center;
+            color: #f0f0f0 !important;
+            margin-bottom: 1.5rem !important;
+        }
+
+        /* Subheaders */
+        h2, h3, h4 {
+            font-size: 2rem !important;
+            font-weight: 700 !important;
+        }
+
+        /* Expander headers */
+        .stExpanderHeader {
+            font-size: 1.5rem !important;
+            font-weight: 700 !important;
+        }
+
+        /* Metric text */
+        .stMetricValue {
+            font-size: 2.5rem !important;
+        }
+        .stMetricLabel {
+            font-size: 1.5rem !important;
+        }
+
+        /* Table text */
+        div.stDataFrame table td, div.stDataFrame table th {
+            font-size: 1.3rem !important;
+        }
+
+        /* Buttons */
+        button {
+            font-size: 1.4rem !important;
+            padding: 0.6rem 1.2rem !important;
+        }
+
+        /* Result / MP cards */
+        .result-card {
+            font-size: 1.3rem !important;
+            line-height: 1.6rem !important;
+            padding: 1rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-# Helpers
-def display_results(df: pd.DataFrame, x=None, y=None, color=None):
-    if df is None:
-        st.error("Dataset missing.")
-        return
-    if df.empty:
-        st.warning("No records found matching your criteria.")
-        return
+    # ----- Session State Initialization -----
+    # These keys are shared between tabs and should persist
+    if "mp_selected_element" not in st.session_state:
+        st.session_state.mp_selected_element = None  
 
-    st.success(f"Found {len(df)} matching records.")
-    st.dataframe(df.head(40), use_container_width=True)
+    if "mp_search_results" not in st.session_state:
+        st.session_state.mp_search_results = None   
 
-    if x in df.columns and y in df.columns:
+    if "mp_selected_material_id" not in st.session_state:
+        st.session_state.mp_selected_material_id = None 
+
+    if "mp_detailed_doc" not in st.session_state:
+        st.session_state.mp_detailed_doc = None
+
+
+    # ----- Session State for Local Search -----
+    if "local_results" not in st.session_state:
+        st.session_state.local_results = None
+
+    if "local_selected" not in st.session_state:
+        st.session_state.local_selected = None
+
+
+    # Helpers
+    def display_results(df: pd.DataFrame, x=None, y=None, color=None):
+        if df is None:
+            st.error("Dataset missing.")
+            return
+        if df.empty:
+            st.warning("No records found matching your criteria.")
+            return
+
+        st.success(f"Found {len(df)} matching records.")
+        st.dataframe(df.head(40), use_container_width=True)
+
+        if x in df.columns and y in df.columns:
+            try:
+                fig = px.scatter(df, x=x, y=y, color=color, hover_name=df.columns[0])
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception:
+                pass
+
+
+
+    """ NOTE-------- This is for rendering 3d structures using py3dmol, too heavy, removed for now.
+    def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int = 450) -> str:
+
+        
+        # Render CIF structure to embeddable HTML using py3Dmol.
+        # If py3Dmol fails or is unavailable, return a compact <pre> fallback.
+        
+
+        if not cif_text:
+            return "<pre>No CIF data provided.</pre>"
+
+        if not _HAS_PY3DMOL:
+            return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>CIF view unavailable (py3Dmol missing)</pre>"
+
         try:
-            fig = px.scatter(df, x=x, y=y, color=color, hover_name=df.columns[0])
-            st.plotly_chart(fig, use_container_width=True)
+            v = py3Dmol.view(width=width, height=height)
+            v.addModel(cif_text, "cif")
+            v.setStyle({"stick": {}})
+            v.zoomTo()
+            html = getattr(v, "get_html", getattr(v, "_make_html", None))
+            if callable(html):
+                return html()
+            
+            # fallback for older versions
+            return v._make_html() if hasattr(v, "_make_html") else "<pre>Could not generate 3D view.</pre>"
+        except Exception as e:
+            return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>Structure render failed: {e}</pre>"
+    """
+
+
+    # ---------------- Autocomplete from dataframe column helper, currentlyonly for cytotoxicity ----------------
+    def db_autocomplete_input(label: str, df: pd.DataFrame, col: str, max_options: int = 200):
+        """
+        Provide a lightweight autocomplete UI:
+        - If column exists, show a selectbox of common values + 'Other...' option.
+        - If user picks 'Other...' or column missing, show free text input.
+        Returns the final string (or None if left blank).
+        """
+        if df is None or col not in df.columns:
+            # fallback to free text if column missing
+            return st.text_input(label, "")
+
+        # get unique values (limit to keep UI snappy)
+        vals = pd.Series(df[col].dropna().astype(str).unique()).sort_values()
+        if len(vals) > max_options:
+            vals = vals.sample(n=max_options, random_state=1).sort_values()
+
+        opts = [""] + vals.tolist() + ["Other..."]
+        selection = st.selectbox(label, opts)
+        if selection == "Other...":
+            return st.text_input(f"{label} (custom)", "")
+        return selection
+
+    # ---------------- Schema card UI Helper ----------------
+    def render_schema_card(schema: dict) -> str:
+        """
+        Render an attractive schema card with inline styling (Tailwind-like).
+        Keep it lightweight and safe for Streamlit.
+        """
+        if not schema:
+            return ""
+        
+        title = schema.get("title", "Schema")
+        desc = schema.get("description", "")
+        cols = schema.get("columns", [])
+        example = schema.get("example", {})
+        
+        card_html = f"""
+        <div style="border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 6px 18px rgba(16,24,40,0.08); background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(249,250,251,1) 100%); border:1px solid rgba(226,232,240,0.6); font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div style="font-size:16px; font-weight:700;">{title}</div>
+                    <div style="font-size:12px; color:#475569; margin-top:4px;">{desc}</div>
+                </div>
+                <div style="font-size:12px; color:#6b7280;">Columns: <strong>{len(cols)}</strong></div>
+            </div>
+            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+        """
+        
+        for c in cols:
+            card_html += f"""<span style="background:#eef2ff; color:#3730a3; padding:6px 8px; border-radius:999px; font-size:12px;">{c}</span>"""
+        
+        # NOTE---- this if block is only if we need slicing [:8] in the future to restrict columns
+        # if len(cols) > 8:
+        #     card_html += f"<span style='color:#6b7280; font-size:12px; padding:6px 0 0 6px;'>+{len(cols)-8} more</span>"
+        
+        card_html += """
+            <div style='margin-top:12px; display:flex; gap:12px; align-items:flex-start;'>
+                <div style='flex:1;'>
+                    <div style='font-size:13px; color:#374151; font-weight:600;'>Example</div>
+                    <pre style='background:#ffffff; padding:8px; border-radius:8px; font-size:12px; color:#0f172a;'>
+        """
+        
+        for k, v in example.items():
+            card_html += f"{k}: {v}\n"
+        
+        card_html += "</pre></div></div></div>"
+        
+        return card_html
+
+
+    def safe_iter(x: Any):
+
+        """Return an iterable if x is dict/list-like, else yield x itself for display."""
+
+        if x is None:
+            return []
+        if isinstance(x, dict):
+            return [x]
+        if isinstance(x, (list, tuple)):
+            return x
+        # single scalar
+        return [x]
+
+
+    def extract_cif_text(structure) -> Optional[str]:
+
+        """
+        Try several robust ways to get a CIF text string from a materials-project
+        'structure' object. Return None if we cannot obtain a CIF string.
+        """
+
+        # first case, already a string, may be a CIF or representation
+        if isinstance(structure, str):
+            txt = structure.strip()
+
+            # main heuristic: if it looks like a CIF or POSCAR, return it
+            if (
+                txt.startswith("data_")
+                or txt.lower().startswith("data_")
+                or "CELL_LENGTH" in txt.upper()
+                or txt.lower().startswith("# cif")
+                or txt.startswith("CRYST1")
+                or "loop_" in txt
+            ):
+                return txt
+            
+            # even if not a CIF, return string (py3Dmol may parse CIF-like strings)
+            return txt
+
+        # then ideally pymatgen Structure-like: try .to(fmt='cif') or .to(fmt='poscar')
+        try:
+            if hasattr(structure, "to"):
+
+                # try multiple versions, 'cif' then 'poscar'
+                for fmt in ("cif", "poscar", "json"):
+                    try:
+                        txt = structure.to(fmt=fmt)
+                        if isinstance(txt, str) and txt.strip():
+                            return txt
+                    except Exception:
+                        continue
         except Exception:
             pass
 
+        # then, some mp-api returns a dictionary or object with 'cif' or 'structure' keys
+        if isinstance(structure, dict):
+            for key in ("cif", "cif_string", "structure", "pretty_formula"):
+                if key in structure and isinstance(structure[key], str) and structure[key].strip():
+                    return structure[key]
+
+        # finally fallback: try str() if not empty
+        try:
+            txt = str(structure)
+            if txt and len(txt) > 10:
+                return txt
+        except Exception:
+            pass
+
+        return None
 
 
-""" NOTE-------- This is for rendering 3d structures using py3dmol, too heavy, removed for now.
-def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int = 450) -> str:
+    def safe_table(data_dict, title=None):
 
-    
-    # Render CIF structure to embeddable HTML using py3Dmol.
-    # If py3Dmol fails or is unavailable, return a compact <pre> fallback.
-    
+        """Render a clean table that hides N/A, None, and empty columns."""
 
-    if not cif_text:
-        return "<pre>No CIF data provided.</pre>"
+        if not isinstance(data_dict, dict) or not data_dict:
+            st.caption(f"No {title or 'valid'} data available.")
+            return
 
-    if not _HAS_PY3DMOL:
-        return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>CIF view unavailable (py3Dmol missing)</pre>"
+        df = pd.DataFrame(list(data_dict.items()), columns=["Property", "Value"])
 
-    try:
-        v = py3Dmol.view(width=width, height=height)
-        v.addModel(cif_text, "cif")
-        v.setStyle({"stick": {}})
-        v.zoomTo()
-        html = getattr(v, "get_html", getattr(v, "_make_html", None))
-        if callable(html):
-            return html()
-        
-        # fallback for older versions
-        return v._make_html() if hasattr(v, "_make_html") else "<pre>Could not generate 3D view.</pre>"
-    except Exception as e:
-        return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>Structure render failed: {e}</pre>"
-"""
-
-
-# ---------------- Autocomplete from dataframe column helper, currentlyonly for cytotoxicity ----------------
-def db_autocomplete_input(label: str, df: pd.DataFrame, col: str, max_options: int = 200):
-    """
-    Provide a lightweight autocomplete UI:
-    - If column exists, show a selectbox of common values + 'Other...' option.
-    - If user picks 'Other...' or column missing, show free text input.
-    Returns the final string (or None if left blank).
-    """
-    if df is None or col not in df.columns:
-        # fallback to free text if column missing
-        return st.text_input(label, "")
-
-    # get unique values (limit to keep UI snappy)
-    vals = pd.Series(df[col].dropna().astype(str).unique()).sort_values()
-    if len(vals) > max_options:
-        vals = vals.sample(n=max_options, random_state=1).sort_values()
-
-    opts = [""] + vals.tolist() + ["Other..."]
-    selection = st.selectbox(label, opts)
-    if selection == "Other...":
-        return st.text_input(f"{label} (custom)", "")
-    return selection
-
-# ---------------- Schema card UI Helper ----------------
-def render_schema_card(schema: dict) -> str:
-    """
-    Render an attractive schema card with inline styling (Tailwind-like).
-    Keep it lightweight and safe for Streamlit.
-    """
-    if not schema:
-        return ""
-    
-    title = schema.get("title", "Schema")
-    desc = schema.get("description", "")
-    cols = schema.get("columns", [])
-    example = schema.get("example", {})
-    
-    card_html = f"""
-    <div style="border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 6px 18px rgba(16,24,40,0.08); background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(249,250,251,1) 100%); border:1px solid rgba(226,232,240,0.6); font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div>
-                <div style="font-size:16px; font-weight:700;">{title}</div>
-                <div style="font-size:12px; color:#475569; margin-top:4px;">{desc}</div>
-            </div>
-            <div style="font-size:12px; color:#6b7280;">Columns: <strong>{len(cols)}</strong></div>
-        </div>
-        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-    """
-    
-    for c in cols:
-        card_html += f"""<span style="background:#eef2ff; color:#3730a3; padding:6px 8px; border-radius:999px; font-size:12px;">{c}</span>"""
-    
-    # NOTE---- this if block is only if we need slicing [:8] in the future to restrict columns
-    # if len(cols) > 8:
-    #     card_html += f"<span style='color:#6b7280; font-size:12px; padding:6px 0 0 6px;'>+{len(cols)-8} more</span>"
-    
-    card_html += """
-        <div style='margin-top:12px; display:flex; gap:12px; align-items:flex-start;'>
-            <div style='flex:1;'>
-                <div style='font-size:13px; color:#374151; font-weight:600;'>Example</div>
-                <pre style='background:#ffffff; padding:8px; border-radius:8px; font-size:12px; color:#0f172a;'>
-    """
-    
-    for k, v in example.items():
-        card_html += f"{k}: {v}\n"
-    
-    card_html += "</pre></div></div></div>"
-    
-    return card_html
-
-
-def safe_iter(x: Any):
-
-    """Return an iterable if x is dict/list-like, else yield x itself for display."""
-
-    if x is None:
-        return []
-    if isinstance(x, dict):
-        return [x]
-    if isinstance(x, (list, tuple)):
-        return x
-    # single scalar
-    return [x]
-
-
-def extract_cif_text(structure) -> Optional[str]:
-
-    """
-    Try several robust ways to get a CIF text string from a materials-project
-    'structure' object. Return None if we cannot obtain a CIF string.
-    """
-
-    # first case, already a string, may be a CIF or representation
-    if isinstance(structure, str):
-        txt = structure.strip()
-
-        # main heuristic: if it looks like a CIF or POSCAR, return it
-        if (
-            txt.startswith("data_")
-            or txt.lower().startswith("data_")
-            or "CELL_LENGTH" in txt.upper()
-            or txt.lower().startswith("# cif")
-            or txt.startswith("CRYST1")
-            or "loop_" in txt
-        ):
-            return txt
-        
-        # even if not a CIF, return string (py3Dmol may parse CIF-like strings)
-        return txt
-
-    # then ideally pymatgen Structure-like: try .to(fmt='cif') or .to(fmt='poscar')
-    try:
-        if hasattr(structure, "to"):
-
-            # try multiple versions, 'cif' then 'poscar'
-            for fmt in ("cif", "poscar", "json"):
-                try:
-                    txt = structure.to(fmt=fmt)
-                    if isinstance(txt, str) and txt.strip():
-                        return txt
-                except Exception:
-                    continue
-    except Exception:
-        pass
-
-    # then, some mp-api returns a dictionary or object with 'cif' or 'structure' keys
-    if isinstance(structure, dict):
-        for key in ("cif", "cif_string", "structure", "pretty_formula"):
-            if key in structure and isinstance(structure[key], str) and structure[key].strip():
-                return structure[key]
-
-    # finally fallback: try str() if not empty
-    try:
-        txt = str(structure)
-        if txt and len(txt) > 10:
-            return txt
-    except Exception:
-        pass
-
-    return None
-
-
-def safe_table(data_dict, title=None):
-
-    """Render a clean table that hides N/A, None, and empty columns."""
-
-    if not isinstance(data_dict, dict) or not data_dict:
-        st.caption(f"No {title or 'valid'} data available.")
-        return
-
-    df = pd.DataFrame(list(data_dict.items()), columns=["Property", "Value"])
-
-    # drop N/A, None, or blank values
-    df = df[
-        df["Value"].notna() &
-        (df["Value"].astype(str) != "N/A") &
-        (df["Value"].astype(str) != "None") &
-        (df["Value"].astype(str).str.strip() != "")
-    ]
-    if df.empty:
-        st.caption(f"No {title or 'valid'} data available.")
-    else:
-        st.table(df)
-
-
-def show_mp_card(mp_json: dict):
-
-    """
-    Display a Materials Project card in Streamlit with summary, elasticity,
-    structure, thermo, bonding, magnetism, oxidation states, and robocrystallographer info.
-    Cleanly skips empty data and avoids raw CIF dumps.
-    """
-
-    if not mp_json:
-        st.info("No Materials Project data available.")
-        return
-
-    st.markdown("<div class='result-card'>", unsafe_allow_html=True)
-    left_col, right_col = st.columns([2, 3])
-
-    # Left column: core info 
-    with left_col:
-        st.subheader(mp_json.get("pretty_formula", mp_json.get("material_id", "Unknown")))
-        st.caption(mp_json.get("material_id", ""))
-
-        summary = mp_json.get("summary") or mp_json.get("remarks") or mp_json.get("description")
-        if summary:
-            st.write(summary)
-
-        # Clean metrics (skip None)
-        metrics = {
-            "Density (g/cm³)": mp_json.get("density"),
-            "Band gap (eV)": mp_json.get("band_gap"),
-            "Energy above hull (eV/atom)": mp_json.get("e_above_hull"),
-        }
-        nonempty_metrics = {k: v for k, v in metrics.items() if v is not None}
-        if nonempty_metrics:
-            cols = st.columns(len(nonempty_metrics))
-            for (label, val), c in zip(nonempty_metrics.items(), cols):
-                c.metric(label, val)
+        # drop N/A, None, or blank values
+        df = df[
+            df["Value"].notna() &
+            (df["Value"].astype(str) != "N/A") &
+            (df["Value"].astype(str) != "None") &
+            (df["Value"].astype(str).str.strip() != "")
+        ]
+        if df.empty:
+            st.caption(f"No {title or 'valid'} data available.")
         else:
-            st.caption("No numeric metrics available.")
+            st.table(df)
 
-        # Chemical system / formula
-        chemsys = (
-            mp_json.get("chemsys")
-            or mp_json.get("composition")
-            or mp_json.get("formula_pretty")
-        )
-        if chemsys:
-            st.write(f"**System / formula:** {chemsys}")
 
-    # Right column: Elasticity + 3D Structure
-    with right_col:
-        elasticity = mp_json.get("elasticity") or {}
+    def show_mp_card(mp_json: dict):
 
-        # filter out None values
-        elasticity = {k: v for k, v in elasticity.items() if v is not None}
+        """
+        Display a Materials Project card in Streamlit with summary, elasticity,
+        structure, thermo, bonding, magnetism, oxidation states, and robocrystallographer info.
+        Cleanly skips empty data and avoids raw CIF dumps.
+        """
 
-        if elasticity:
-            with st.expander("Elasticity data", expanded=False):
-                for key, val in elasticity.items():
-                    st.write(f"- **{key}**: {val}")
-        else:
-            st.caption("No elasticity data available.")
+        if not mp_json:
+            st.info("No Materials Project data available.")
+            return
 
-        # NOTE nested sructures to mimic the data from the api in json format
-        # Structure rendering
-        structure = mp_json.get("structure") or mp_json.get("cif")
-        if structure:
-            st.write("### 3D Structure")
-            try:
-                cif_text = extract_cif_text(structure)
-                if cif_text:
-                        st.caption("Structure available but could not be visualized.3D structure viewer disabled (until further notice).")
-                else:
-                    st.caption("Structure present, but no CIF text extractable.")
-            except Exception as e:
-                st.warning(f"Structure could not be displayed: {e}")
-        else:
-            st.caption("No structure data available.")
+        st.markdown("<div class='result-card'>", unsafe_allow_html=True)
+        left_col, right_col = st.columns([2, 3])
 
-    # --- Nested properties (thermo, bonding, magnetism, oxidation, robocrystallography) ---
-    nested_docs = {
-        "Thermodynamic data": mp_json.get("thermo") or mp_json.get("thermodynamics"),
-        "Bonding / coordination": mp_json.get("bonds") or mp_json.get("bonding") or mp_json.get("bond_data"),
-        "Magnetism": mp_json.get("magnetism") or mp_json.get("magnetic"),
-        "Oxidation states": mp_json.get("oxidation_states") or mp_json.get("oxidation_state") or mp_json.get("oxi_states"),
-        "Robocrystallographer": mp_json.get("robocrys") or mp_json.get("robocrystallogapher") or mp_json.get("robocryst"),
-    }
+        # Left column: core info 
+        with left_col:
+            st.subheader(mp_json.get("pretty_formula", mp_json.get("material_id", "Unknown")))
+            st.caption(mp_json.get("material_id", ""))
 
-    for title, data in nested_docs.items():
+            summary = mp_json.get("summary") or mp_json.get("remarks") or mp_json.get("description")
+            if summary:
+                st.write(summary)
 
-        # Skip completely empty or None fields
-        if not data:
-            continue
-
-        with st.expander(title, expanded=False):
-            if isinstance(data, (dict, list)):
-
-                cleaned = [d for d in safe_iter(data) if d]
-                if not cleaned:
-                    st.caption("No data available.")
-                else:
-                    for entry in cleaned:
-                        if isinstance(entry, dict):
-                            flat = flatten_dict(entry)
-                            safe_table(flat, title=title)
-                        elif isinstance(entry, list):
-                            st.write(", ".join(map(str, entry)))
-                        else:
-                            st.write(entry)
+            # Clean metrics (skip None)
+            metrics = {
+                "Density (g/cm³)": mp_json.get("density"),
+                "Band gap (eV)": mp_json.get("band_gap"),
+                "Energy above hull (eV/atom)": mp_json.get("e_above_hull"),
+            }
+            nonempty_metrics = {k: v for k, v in metrics.items() if v is not None}
+            if nonempty_metrics:
+                cols = st.columns(len(nonempty_metrics))
+                for (label, val), c in zip(nonempty_metrics.items(), cols):
+                    c.metric(label, val)
             else:
-                st.write(str(data))
+                st.caption("No numeric metrics available.")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+            # Chemical system / formula
+            chemsys = (
+                mp_json.get("chemsys")
+                or mp_json.get("composition")
+                or mp_json.get("formula_pretty")
+            )
+            if chemsys:
+                st.write(f"**System / formula:** {chemsys}")
+
+        # Right column: Elasticity + 3D Structure
+        with right_col:
+            elasticity = mp_json.get("elasticity") or {}
+
+            # filter out None values
+            elasticity = {k: v for k, v in elasticity.items() if v is not None}
+
+            if elasticity:
+                with st.expander("Elasticity data", expanded=False):
+                    for key, val in elasticity.items():
+                        st.write(f"- **{key}**: {val}")
+            else:
+                st.caption("No elasticity data available.")
+
+            # NOTE nested sructures to mimic the data from the api in json format
+            # Structure rendering
+            structure = mp_json.get("structure") or mp_json.get("cif")
+            if structure:
+                st.write("### 3D Structure")
+                try:
+                    cif_text = extract_cif_text(structure)
+                    if cif_text:
+                            st.caption("Structure available but could not be visualized.3D structure viewer disabled (until further notice).")
+                    else:
+                        st.caption("Structure present, but no CIF text extractable.")
+                except Exception as e:
+                    st.warning(f"Structure could not be displayed: {e}")
+            else:
+                st.caption("No structure data available.")
+
+        # --- Nested properties (thermo, bonding, magnetism, oxidation, robocrystallography) ---
+        nested_docs = {
+            "Thermodynamic data": mp_json.get("thermo") or mp_json.get("thermodynamics"),
+            "Bonding / coordination": mp_json.get("bonds") or mp_json.get("bonding") or mp_json.get("bond_data"),
+            "Magnetism": mp_json.get("magnetism") or mp_json.get("magnetic"),
+            "Oxidation states": mp_json.get("oxidation_states") or mp_json.get("oxidation_state") or mp_json.get("oxi_states"),
+            "Robocrystallographer": mp_json.get("robocrys") or mp_json.get("robocrystallogapher") or mp_json.get("robocryst"),
+        }
+
+        for title, data in nested_docs.items():
+
+            # Skip completely empty or None fields
+            if not data:
+                continue
+
+            with st.expander(title, expanded=False):
+                if isinstance(data, (dict, list)):
+
+                    cleaned = [d for d in safe_iter(data) if d]
+                    if not cleaned:
+                        st.caption("No data available.")
+                    else:
+                        for entry in cleaned:
+                            if isinstance(entry, dict):
+                                flat = flatten_dict(entry)
+                                safe_table(flat, title=title)
+                            elif isinstance(entry, list):
+                                st.write(", ".join(map(str, entry)))
+                            else:
+                                st.write(entry)
+                else:
+                    st.write(str(data))
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_property_comparison(df_local: Optional[pd.DataFrame], mp_df: Optional[pd.DataFrame], selected_name: str):
+    def render_property_comparison(df_local: Optional[pd.DataFrame], mp_df: Optional[pd.DataFrame], selected_name: str):
 
-    """
-    Radar comparison between local properties (if present) and MP-derived properties (mp_df).
-    """
+        """
+        Radar comparison between local properties (if present) and MP-derived properties (mp_df).
+        """
 
-    props = ['density', 'E_est_GPa', 'Tensile_Strength_MPa']
-    local_vals, mp_vals = [], []
+        props = ['density', 'E_est_GPa', 'Tensile_Strength_MPa']
+        local_vals, mp_vals = [], []
 
-    # find the local row if possible (first match)
-    if df_local is not None:
-        row = df_local[df_local.iloc[:, 0].str.contains(selected_name, case=False, na=False)]
-        local_row = row.iloc[0] if not row.empty else None
-    else:
-        local_row = None
+        # find the local row if possible (first match)
+        if df_local is not None:
+            row = df_local[df_local.iloc[:, 0].str.contains(selected_name, case=False, na=False)]
+            local_row = row.iloc[0] if not row.empty else None
+        else:
+            local_row = None
 
-    for p in props:
-        if local_row is not None and p in df_local.columns:
-            try:
-                local_vals.append(float(local_row.get(p, 0) or 0))
-            except Exception:
+        for p in props:
+            if local_row is not None and p in df_local.columns:
+                try:
+                    local_vals.append(float(local_row.get(p, 0) or 0))
+                except Exception:
+                    local_vals.append(0)
+            else:
                 local_vals.append(0)
-        else:
-            local_vals.append(0)
 
-        if mp_df is not None and p in mp_df.columns:
-            try:
-                mp_vals.append(float(mp_df.iloc[0].get(p, 0) or 0))
-            except Exception:
+            if mp_df is not None and p in mp_df.columns:
+                try:
+                    mp_vals.append(float(mp_df.iloc[0].get(p, 0) or 0))
+                except Exception:
+                    mp_vals.append(0)
+            else:
                 mp_vals.append(0)
-        else:
-            mp_vals.append(0)
 
-    # build plotly gigure
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(r=local_vals, theta=props, fill='toself', name='Local DB'))
-    fig.add_trace(go.Scatterpolar(r=mp_vals, theta=props, fill='toself', name='Materials Project'))
-    fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, title=f'Property comparison for {selected_name}')
-    st.plotly_chart(fig, use_container_width=True)
+        # build plotly gigure
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(r=local_vals, theta=props, fill='toself', name='Local DB'))
+        fig.add_trace(go.Scatterpolar(r=mp_vals, theta=props, fill='toself', name='Materials Project'))
+        fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, title=f'Property comparison for {selected_name}')
+        st.plotly_chart(fig, use_container_width=True)
 
 
-def flatten_dict(d, parent_key='', sep='.'):
+    def flatten_dict(d, parent_key='', sep='.'):
 
-    """Recursively flatten nested dictionaries for table display."""
+        """Recursively flatten nested dictionaries for table display."""
 
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
+        items = []
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(flatten_dict(v, new_key, sep=sep).items())
+            else:
+                items.append((new_key, v))
+        return dict(items)
 
 
-# ---------- UI NOTE -> this is where it gets really convoluted because of how streamlit renders and queries
-def run_selection_app():
+    # ---------- UI NOTE -> this is where it gets really convoluted because of how streamlit renders and queries
     st.markdown("<div class='large-title'>Material Selection Module</div>", unsafe_allow_html=True)
     st.write('Find the best materials based on engineering, biological, or chemical requirements.')
 

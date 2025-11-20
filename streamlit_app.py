@@ -1,15 +1,49 @@
-import sys, os
-sys.dont_write_bytecode = False
-os.environ["PYTHONPYCACHEPREFIX"] = "/tmp/pycache"
-os.makedirs("/tmp/pycache", exist_ok=True)
+import sys
+import os
+import shutil
+
+# Clear all cache directories aggressively
+cache_dirs = [
+    "/tmp/pycache",
+    "/tmp/matplotlib",
+    "/tmp/streamlit",
+    "__pycache__",
+    "app/__pycache__",
+    "app/human_atlas/__pycache__",
+    "src/__pycache__",
+    "src/features/__pycache__",
+    "src/inference/__pycache__",
+    "src/ml_pipelines/__pycache__",
+    "src/utils/__pycache__"
+]
+
+for cache_dir in cache_dirs:
+    try:
+        if os.path.exists(cache_dir):
+            if os.path.isfile(cache_dir):
+                os.remove(cache_dir)
+            else:
+                shutil.rmtree(cache_dir)
+            print(f"Cleared: {cache_dir}")
+    except Exception as e:
+        print(f"Warning: Could not clear {cache_dir}: {e}")
+
+
+# Set environment variables BEFORE any other imports
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
+os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+
+# Create necessary directories
+os.makedirs("/tmp/matplotlib", exist_ok=True)
 
 import streamlit as st
 import importlib
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 import logging
+import traceback
 
 
 # Logging for version tracking server side
@@ -256,14 +290,37 @@ st.markdown("""
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# --- Routing ---
+# --- Routing with Error Handling ---
 page = st.session_state.get("page", "home")
-if page == "ml":
-    module = importlib.import_module("app.ml_app")
-    module.run_ml_app()
-elif page == "selection":
-    module = importlib.import_module("app.material_app")
-    module.run_selection_app()
-elif page == "hra":
-    module = importlib.import_module("app.human_atlas.hra_visualizer")
-    module.run_hra_visualizer()
+
+try:
+    if page == "ml":
+        # Clear module cache to ensure fresh import
+        if "app.ml_app" in sys.modules:
+            del sys.modules["app.ml_app"]
+        module = importlib.import_module("app.ml_app")
+        module.run_ml_app()
+        
+    elif page == "selection":
+        # Clear module cache
+        if "app.material_app" in sys.modules:
+            del sys.modules["app.material_app"]
+        module = importlib.import_module("app.material_app")
+        module.run_selection_app()
+        
+    elif page == "hra":
+        # Clear module cache
+        if "app.human_atlas.hra_visualizer" in sys.modules:
+            del sys.modules["app.human_atlas.hra_visualizer"]
+        module = importlib.import_module("app.human_atlas.hra_visualizer")
+        module.run_hra_visualizer()
+        
+except Exception as e:
+    st.error(f"Error loading module: {str(e)}")
+    st.code(traceback.format_exc())
+    logging.error(f"Module loading error: {traceback.format_exc()}")
+    
+    # Reset to home page on error
+    if st.button("Return to Home"):
+        st.session_state.page = "home"
+        st.rerun()
