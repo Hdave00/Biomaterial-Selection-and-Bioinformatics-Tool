@@ -1,6 +1,26 @@
-import sys
-import os
-import shutil
+import os, shutil
+
+# Minimal, robust startup environment (do this before importing streamlit)
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"        # recommended
+os.environ["PYTHONPYCACHEPREFIX"] = "/tmp/pycache"
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
+
+# Ensure pycache folders that watcher might look for exist
+os.makedirs("/tmp/pycache", exist_ok=True)
+os.makedirs("app/__pycache__", exist_ok=True)
+os.makedirs("src/utils/__pycache__", exist_ok=True)
+# add any other package-level __pycache__ that appear in earlier logs
+
+# Optionally clear those runtime dirs at startup (but don't remove them while app running)
+for d in ("/tmp/matplotlib", "/tmp/pycache"):
+    try:
+        if os.path.exists(d):
+            # careful: remove only contents if you want, not the directory itself
+            pass
+    except Exception:
+        pass
 
 # Clear all cache directories aggressively
 cache_dirs = [
@@ -29,15 +49,7 @@ for cache_dir in cache_dirs:
         print(f"Warning: Could not clear {cache_dir}: {e}")
 
 
-# Set environment variables BEFORE any other imports
-os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
-os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
-
-# Create necessary directories
-os.makedirs("/tmp/matplotlib", exist_ok=True)
-
+import sys
 import streamlit as st
 import importlib
 from datetime import datetime, timedelta, timezone
