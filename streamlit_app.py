@@ -14,7 +14,7 @@ import logging
 
 
 # Logging for version tracking server side
-__version__ = "1.2 beta"
+__version__ = "1.3 beta"
 __release_date__ = "2025-11-20"
 __codename__ = "Decius"
 
