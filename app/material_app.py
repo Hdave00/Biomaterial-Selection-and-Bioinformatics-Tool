@@ -21,6 +21,13 @@ Notes:
 """
 
 import streamlit as st
+
+st.markdown("## Local Database Search")
+
+if not st.button("Activate Module"):
+    st.info("Click to load database module")
+    st.stop()
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -32,13 +39,24 @@ from src.utils.data_registry import schema_registry
 import sqlite3
 import json
 
+""" NOTE ---- PY3DMOL is too heavy for the free tier of streamlit, if used in future, use this method of loading
+# optional visualization helper, because app is apparently too heavy for streamlit in terms of JS
+_HAS_PY3DMOL = False
 
-# optional visualization helper
-try:
-    import py3Dmol
-    _HAS_PY3DMOL = True
-except Exception:
-    _HAS_PY3DMOL = False
+def get_py3Dmol():
+    global _HAS_PY3DMOL
+    if not _HAS_PY3DMOL:
+        try:
+            import py3Dmol
+            _HAS_PY3DMOL = py3Dmol
+        except:
+            _HAS_PY3DMOL = None
+    return _HAS_PY3DMOL
+"""
+
+@st.cache_resource
+def get_db_connection():
+    return sqlite3.connect(get_db_path("materials.db"), check_same_thread=False)
 
 
 # query_mp_advanced_filters is not being called directly due to extremely high data demands, its wrapped in caching that is called by the caching helper functions
@@ -177,12 +195,14 @@ def display_results(df: pd.DataFrame, x=None, y=None, color=None):
             pass
 
 
+
+""" NOTE-------- This is for rendering 3d structures using py3dmol, too heavy, removed for now.
 def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int = 450) -> str:
 
-    """
-    Render CIF structure to embeddable HTML using py3Dmol.
-    If py3Dmol fails or is unavailable, return a compact <pre> fallback.
-    """
+    
+    # Render CIF structure to embeddable HTML using py3Dmol.
+    # If py3Dmol fails or is unavailable, return a compact <pre> fallback.
+    
 
     if not cif_text:
         return "<pre>No CIF data provided.</pre>"
@@ -203,7 +223,8 @@ def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int
         return v._make_html() if hasattr(v, "_make_html") else "<pre>Could not generate 3D view.</pre>"
     except Exception as e:
         return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>Structure render failed: {e}</pre>"
-    
+"""
+
 
 # ---------------- Autocomplete from dataframe column helper, currentlyonly for cytotoxicity ----------------
 def db_autocomplete_input(label: str, df: pd.DataFrame, col: str, max_options: int = 200):
@@ -439,11 +460,7 @@ def show_mp_card(mp_json: dict):
             try:
                 cif_text = extract_cif_text(structure)
                 if cif_text:
-                    html = _render_structure_html_from_cif(cif_text, width=700, height=450)
-                    if isinstance(html, str):
-                        st.components.v1.html(html, height=480, scrolling=False)
-                    else:
-                        st.caption("Structure available but could not be visualized.")
+                        st.caption("Structure available but could not be visualized.3D structure viewer disabled (until further notice).")
                 else:
                     st.caption("Structure present, but no CIF text extractable.")
             except Exception as e:
