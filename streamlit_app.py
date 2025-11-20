@@ -1,13 +1,8 @@
 import os
-
-# try to fix the .pyc FileNotFoundError: __pycache__/mp_integration.cpython-311.pyc...
+os.environ["PYTHONPYCACHEPREFIX"] = "/tmp/pycache"
+os.makedirs("/tmp/pycache", exist_ok=True)
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-
-# make matplotlib store its cache in /tmp to avoid fontcache issues on read-only mounts
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
-
-# optionally set a BIOMAT_DB_DIR override (useful in dev)
-os.environ.setdefault("BIOMAT_DB_DIR", "/tmp/master_database")
 
 import sys
 import streamlit as st
