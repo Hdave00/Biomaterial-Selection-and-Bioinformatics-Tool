@@ -1,10 +1,10 @@
-import os
+import sys, os
+sys.dont_write_bytecode = False
 os.environ["PYTHONPYCACHEPREFIX"] = "/tmp/pycache"
 os.makedirs("/tmp/pycache", exist_ok=True)
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
-import sys
 import streamlit as st
 import importlib
 from datetime import datetime, timedelta, timezone
