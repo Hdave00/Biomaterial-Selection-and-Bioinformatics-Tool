@@ -1,4 +1,8 @@
 import os
+
+# try to fix the .pyc FileNotFoundError: __pycache__/mp_integration.cpython-311.pyc...
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+
 # make matplotlib store its cache in /tmp to avoid fontcache issues on read-only mounts
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
