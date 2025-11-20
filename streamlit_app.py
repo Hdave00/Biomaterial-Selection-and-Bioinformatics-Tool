@@ -1,4 +1,10 @@
-# entry_app.py
+import os
+# make matplotlib store its cache in /tmp to avoid fontcache issues on read-only mounts
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
+# optionally set a BIOMAT_DB_DIR override (useful in dev)
+os.environ.setdefault("BIOMAT_DB_DIR", "/tmp/master_database")
+
 import sys
 import streamlit as st
 import importlib
@@ -8,9 +14,9 @@ import logging
 
 
 # Logging for version tracking server side
-__version__ = "1.0 beta"
+__version__ = "1.2 beta"
 __release_date__ = "2025-11-20"
-__codename__ = "Augustus"
+__codename__ = "Decius"
 
 # Configure logging
 logging.basicConfig(

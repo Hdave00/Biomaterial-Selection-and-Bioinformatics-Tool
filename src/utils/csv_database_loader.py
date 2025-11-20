@@ -5,19 +5,47 @@
 import sqlite3
 import pandas as pd
 import os
+import shutil
 
-# Set a fixed directory for databases to be crated if a folder dooes or does not exist
-BASE_DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "master_database")
-
+# Use a writable runtime directory for DB files THAT WORKS ON STREAMLIT
+BASE_DB_DIR = os.environ.get("BIOMAT_DB_DIR", "/tmp/master_database")
 os.makedirs(BASE_DB_DIR, exist_ok=True)
 
 
+# Helper: path to DB stored inside runtime writable dir
 def get_db_path(name):
-    """
-    Returns a full path to a DB inside /master_database.
-    Example: get_db_path("materials.db")
-    """
     return os.path.join(BASE_DB_DIR, name)
+
+
+# Path in the repository where dev-time DBs live (read-only on cloud)
+REPO_DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "master_database")
+
+def ensure_runtime_dbs_copied():
+
+    """
+    Copy any .db files from the repo master_database into the writable runtime dir.
+    Safe: copies only if target missing or sizes differ.
+    """
+
+    if not os.path.isdir(REPO_DB_DIR):
+        return
+    
+    for fname in os.listdir(REPO_DB_DIR):
+        if not fname.lower().endswith(".db"):
+            continue
+        src = os.path.join(REPO_DB_DIR, fname)
+        dst = get_db_path(fname)
+        try:
+            # copy only if not present or different size quick check
+            if (not os.path.exists(dst)) or (os.path.getsize(src) != os.path.getsize(dst)):
+                shutil.copy2(src, dst)
+        except Exception:
+            # forgo errors because on some deployments REPO_DB_DIR may be missing
+            pass
+
+# run at import time (idempotent)
+ensure_runtime_dbs_copied()
+
 
 
 def run_sql(db_path, sql):
@@ -26,7 +54,7 @@ def run_sql(db_path, sql):
     Execute any SQL query and return a DataFrame. Mainly for debugging and testing table joins.
     """
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     df = pd.read_sql_query(sql, conn)
     conn.close()
     return df
@@ -62,7 +90,7 @@ def load_csv_to_sqlite(csv_path, db_path, table_name, if_exists='replace'):
     df.columns = [c.strip().replace(" ", "_").replace("%","pct").replace("°","C").replace("/","_") for c in df.columns]
     
     # create a connection, covert the given dataframe of CSV into an SQL table.
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     df.to_sql(table_name, conn, if_exists=if_exists, index=False)
 
     # commit the change and close connection
@@ -91,27 +119,21 @@ def query_table(db_path, table_name, where: dict | None = None):
     """
 
     # clean column format and parameterized queries to prevent injection 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
 
     sql = f"SELECT * FROM {table_name}"
 
     params = None
 
     if where:
-        conditions = []
+        conds = []
         params = []
 
-        for col, value in where.items():
-            conditions.append(f"{col} = ?")
-            params.append(value)
-
-        sql += " WHERE " + " AND ".join(conditions)
-
-    # Only pass params if they exist
-    if params is not None:
-        df = pd.read_sql_query(sql, conn, params=params)
-    else:
-        df = pd.read_sql_query(sql, conn)
-
+        for k, v in where.items():
+            conds.append(f"{k} = ?")
+            params.append(v)
+        sql += " WHERE " + " AND ".join(conds)
+    
+    df = pd.read_sql_query(sql, conn, params=params) if params else pd.read_sql_query(sql, conn)
     conn.close()
     return df

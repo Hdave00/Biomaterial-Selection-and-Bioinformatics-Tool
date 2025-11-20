@@ -31,7 +31,6 @@ from src.utils import data_registry, filter_engine
 from src.utils.data_registry import schema_registry
 import sqlite3
 import json
-import textwrap
 
 
 # optional visualization helper
