@@ -26,9 +26,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import os
 from typing import Optional, Any, Iterable
-from src.utils.csv_database_loader import query_table, get_db_path
+# REMOVE ALL DB HELPERS
+# from src.utils.csv_database_loader import query_table, get_db_path
 from src.utils import data_registry, filter_engine
-import sqlite3
+# REMOVE SQLITE
+# import sqlite3
 import json
 
 # optional visualization helper
@@ -654,11 +656,6 @@ def run_selection_app():
                         show_mp_card(mp_json)
                     else:
                         st.warning('Materials Project has no entry for the selected local material.')
-
-    # Materials Project Explorer tab left unchanged
-    if tab_choice == 'Materials Project Explorer':
-        # existing logic continues unchanged
-        pass
 
 
     # Materials Project Explorer Section

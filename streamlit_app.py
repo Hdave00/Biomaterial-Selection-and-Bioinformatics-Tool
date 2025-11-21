@@ -1,67 +1,15 @@
-import os, shutil
-
-# Minimal, robust startup environment (do this before importing streamlit)
-os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-os.environ["PYTHONDONTWRITEBYTECODE"] = "1"        # recommended
-os.environ["PYTHONPYCACHEPREFIX"] = "/tmp/pycache"
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
-os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
-
-# Ensure pycache folders that watcher might look for exist
-os.makedirs("/tmp/pycache", exist_ok=True)
-os.makedirs("app/__pycache__", exist_ok=True)
-os.makedirs("src/utils/__pycache__", exist_ok=True)
-# add any other package-level __pycache__ that appear in earlier logs
-
-# Optionally clear those runtime dirs at startup (but don't remove them while app running)
-for d in ("/tmp/matplotlib", "/tmp/pycache"):
-    try:
-        if os.path.exists(d):
-            # careful: remove only contents if you want, not the directory itself
-            pass
-    except Exception:
-        pass
-
-# Clear all cache directories aggressively
-cache_dirs = [
-    "/tmp/pycache",
-    "/tmp/matplotlib",
-    "/tmp/streamlit",
-    "__pycache__",
-    "app/__pycache__",
-    "app/human_atlas/__pycache__",
-    "src/__pycache__",
-    "src/features/__pycache__",
-    "src/inference/__pycache__",
-    "src/ml_pipelines/__pycache__",
-    "src/utils/__pycache__"
-]
-
-for cache_dir in cache_dirs:
-    try:
-        if os.path.exists(cache_dir):
-            if os.path.isfile(cache_dir):
-                os.remove(cache_dir)
-            else:
-                shutil.rmtree(cache_dir)
-            print(f"Cleared: {cache_dir}")
-    except Exception as e:
-        print(f"Warning: Could not clear {cache_dir}: {e}")
-
-
+# entry_app.py
 import sys
 import streamlit as st
 import importlib
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 import logging
-import traceback
 
 
-# Logging for version tracking server side
-__version__ = "1.3 beta"
+__version__ = "1.0 beta"
 __release_date__ = "2025-11-20"
-__codename__ = "Decius"
+__codename__ = "csv"
 
 # Configure logging
 logging.basicConfig(
@@ -69,7 +17,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-logging.info(f"Launching Biomaterial Platform — v{__version__} ({__codename__})")
+logging.info(f"Starting Biomaterial platform... v{__version__}")
 
 
 st.set_page_config(page_title="Biomaterial and Bioinformatics Platform", layout="wide")
@@ -234,7 +182,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 
-# Domain Overview ---
+# --- Domain Overview ---
 col1, col2, col3 = st.columns(3)
 
 # ML Module
@@ -302,37 +250,14 @@ st.markdown("""
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# --- Routing with Error Handling ---
+# --- Routing ---
 page = st.session_state.get("page", "home")
-
-try:
-    if page == "ml":
-        # Clear module cache to ensure fresh import
-        if "app.ml_app" in sys.modules:
-            del sys.modules["app.ml_app"]
-        module = importlib.import_module("app.ml_app")
-        module.run_ml_app()
-        
-    elif page == "selection":
-        # Clear module cache
-        if "app.material_app" in sys.modules:
-            del sys.modules["app.material_app"]
-        module = importlib.import_module("app.material_app")
-        module.run_selection_app()
-        
-    elif page == "hra":
-        # Clear module cache
-        if "app.human_atlas.hra_visualizer" in sys.modules:
-            del sys.modules["app.human_atlas.hra_visualizer"]
-        module = importlib.import_module("app.human_atlas.hra_visualizer")
-        module.run_hra_visualizer()
-        
-except Exception as e:
-    st.error(f"Error loading module: {str(e)}")
-    st.code(traceback.format_exc())
-    logging.error(f"Module loading error: {traceback.format_exc()}")
-    
-    # Reset to home page on error
-    if st.button("Return to Home"):
-        st.session_state.page = "home"
-        st.rerun()
+if page == "ml":
+    module = importlib.import_module("app.ml_app")
+    module.run_ml_app()
+elif page == "selection":
+    module = importlib.import_module("app.material_app")
+    module.run_selection_app()
+elif page == "hra":
+    module = importlib.import_module("app.human_atlas.hra_visualizer")
+    module.run_hra_visualizer()
