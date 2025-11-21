@@ -401,7 +401,7 @@ def run_ml_app():
                 })
                 st.markdown("### Molecular Descriptors")
                 st.dataframe(desc_df, use_container_width=True)
-
+                
                 # --- Visualization ---
                 import matplotlib.pyplot as plt
                 fig, ax = plt.subplots()
