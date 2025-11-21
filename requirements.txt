@@ -3,7 +3,7 @@ numpy>=1.26.4,<1.27
 pandas>=2.3.1,<2.4
 plotly>=6.2.0,<6.3
 py3Dmol>=2.0.4,<2.1
-matplotlib>=3.7,<3.8
+matplotlib>=3.8
 
 # Materials Project / crystallography
 mp-api>=0.45.8,<0.46
