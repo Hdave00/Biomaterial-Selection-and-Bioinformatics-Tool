@@ -5,6 +5,7 @@ import pandas as pd
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from mp_api.client import MPRester
+from functools import lru_cache
 import streamlit as st
 
 # Load key from .env
