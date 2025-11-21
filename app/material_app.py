@@ -4,6 +4,11 @@ Streamlit UI for Material Selection + Materials Project integration.
 
 """
 
+import matplotlib
+matplotlib.use("Agg")  # avoid any font manager init issues
+import plotly.io as pio
+pio.renderers.default = "iframe"  # safer on Streamlit Cloud
+
 import streamlit as st
 
 import pandas as pd
@@ -408,8 +413,9 @@ def show_mp_card(mp_json: dict):
             else:
                 st.write(str(data))
     st.markdown("</div>", unsafe_allow_html=True)
+    
 
-
+'''
 def render_property_comparison(df_local: Optional[pd.DataFrame], mp_df: Optional[pd.DataFrame], selected_name: str):
     """ Radar comparison between local properties (if present) and MP-derived properties (mp_df). """
     props = ['density', 'E_est_GPa', 'Tensile_Strength_MPa']
@@ -441,6 +447,7 @@ def render_property_comparison(df_local: Optional[pd.DataFrame], mp_df: Optional
     fig.add_trace(go.Scatterpolar(r=mp_vals, theta=props, fill='toself', name='Materials Project'))
     fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, title=f'Property comparison for {selected_name}')
     st.plotly_chart(fig, use_container_width=True)
+'''
 
 
 def flatten_dict(d, parent_key='', sep='.'):
@@ -488,7 +495,6 @@ def run_selection_app():
         }[domain]
         
         # SQLite NEW DATABASE LOADER ---
-        @st.cache_data(show_spinner=False)
         def load_domain_from_db(domain_key: str):
             db_map = {
                 "structural": ("materials.db", "structural_materials"),
