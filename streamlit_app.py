@@ -9,7 +9,7 @@ import logging
 
 __version__ = "1.4 beta"
 __release_date__ = "2025-11-21"
-__codename__ = "sql"
+__codename__ = "Brutus"
 
 # Configure logging
 logging.basicConfig(

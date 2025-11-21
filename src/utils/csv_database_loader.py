@@ -12,16 +12,20 @@ import re
 from typing import Tuple, Optional
 
 
-# Path in repository where dev-time DBs live (read-only on cloud)
-REPO_DB_DIR = os.path.join(
+BASE_DB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "master_database"
 )
+os.makedirs(BASE_DB_DIR, exist_ok=True)
+
+
+# Path in repository where dev-time DBs live (read-only on cloud)
+REPO_DB_DIR = BASE_DB_DIR
 
 def get_db_path(name: str) -> str:
-    """Return full runtime-writable path for a DB filename."""
+    """Return full path to DB in master_database."""
+    return os.path.join(BASE_DB_DIR, name)
 
-    return os.path.join(REPO_DB_DIR, name)
 
 def copy_repo_dbs_to_runtime():
     """
@@ -49,7 +53,7 @@ def _sanitize_table_name(name: str) -> str:
         raise ValueError("Invalid table name. Only A-Za-z0-9_ and underscore allowed.")
     return name
 
-def _normalize_columns(cols):
+def normalize_columns(cols):
     """
     - strip whitespace
     - replace spaces with _
@@ -61,6 +65,7 @@ def _normalize_columns(cols):
     for c in cols:
         c0 = str(c).strip()
         c0 = c0.replace(" ", "_").replace("%", "pct").replace("°", "deg").replace("/", "_").replace("$", "")
+
         # collapse multiple underscores
         c0 = re.sub(r'__+', '_', c0)
         if not c0:
@@ -90,7 +95,7 @@ def load_csv_to_sqlite(csv_path: str, db_path: str, table_name: str, if_exists: 
     # Read first row to normalize headers (without loading whole file)
     # Use pandas to parse headers reliably
     first_df = pd.read_csv(csv_path, nrows=5)  # small read for header inference
-    normalized_cols = _normalize_columns(first_df.columns.tolist())
+    normalized_cols = normalize_columns(first_df.columns.tolist())
 
     # Build temp DB path in same directory as final (atomic move)
     db_dir = os.path.dirname(db_path)
@@ -110,7 +115,7 @@ def load_csv_to_sqlite(csv_path: str, db_path: str, table_name: str, if_exists: 
             first_chunk = True
             for chunk in iterator:
                 # normalize column names to match the header normalization
-                chunk.columns = _normalize_columns(chunk.columns.tolist())
+                chunk.columns = normalize_columns(chunk.columns.tolist())
                 # ensure order/columns align with the initial normalization
                 # reindex missing cols as NaN, drop extras
                 chunk = chunk.reindex(columns=normalized_cols, fill_value=None)
@@ -119,7 +124,7 @@ def load_csv_to_sqlite(csv_path: str, db_path: str, table_name: str, if_exists: 
                 total += len(chunk)
         else:
             df = pd.read_csv(csv_path)
-            df.columns = _normalize_columns(df.columns.tolist())
+            df.columns = normalize_columns(df.columns.tolist())
             df.to_sql(table_name, conn, if_exists=if_exists, index=False)
             total = len(df)
 
