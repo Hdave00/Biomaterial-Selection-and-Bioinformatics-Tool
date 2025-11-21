@@ -20,11 +20,19 @@ Notes:
 
 """
 
+import os, sys
+
+# Block matplotlib completely
+sys.modules["matplotlib"] = None
+sys.modules["matplotlib.pyplot"] = None
+os.environ["MPLCONFIGDIR"] = "/tmp/mpl"
+os.environ["MPLBACKEND"] = "Agg"
+os.makedirs("/tmp/mpl", exist_ok=True)
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import os
 from typing import Optional, Any, Iterable
 # REMOVE ALL DB HELPERS
 # from src.utils.csv_database_loader import query_table, get_db_path

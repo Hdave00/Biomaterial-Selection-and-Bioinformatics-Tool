@@ -1,37 +1,20 @@
-# << put this at the VERY TOP of streamlit_app.py, before any other imports >>
-import os
-import shutil
+# --- HARD BLOCK MATPLOTLIB COMPLETELY (must be first lines) ---
+import os, sys
 
-# Use a clean runtime dir for matplotlib user cache (must be writable)
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
-os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
+# Make matplotlib impossible to import
+sys.modules["matplotlib"] = None
+sys.modules["matplotlib.pyplot"] = None
 
-# Force matplotlib to a headless backend BEFORE it is imported anywhere.
-# Do NOT import matplotlib.pyplot or other matplotlib modules anywhere before this.
-os.environ.setdefault("MATPLOTLIBRC", os.path.join(os.environ["MPLCONFIGDIR"], "matplotlibrc"))
-try:
-    # If matplotlib is present, force non-interactive backend as soon as possible:
-    import importlib
-    if importlib.util.find_spec("matplotlib") is not None:
-        import matplotlib
-        matplotlib.use("Agg", force=True)
-except Exception:
-    # If anything goes wrong here, swallow — we'll fall back to Plotly-only rendering.
-    pass
+# For safety, force MPL paths out of repo
+os.environ["MPLCONFIGDIR"] = "/tmp/mpl"
+os.environ["MPLBACKEND"] = "Agg"
+os.makedirs("/tmp/mpl", exist_ok=True)
 
-# Ensure Python doesn't try to write .pyc files into repo
-os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+# Prevent .pyc creation
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-# Optional: clear stale font cache if exists (safe and quick)
-font_cache_dir = os.path.join(os.environ["MPLCONFIGDIR"], "fontlist-v300.json")
-try:
-    if os.path.exists(font_cache_dir):
-        os.remove(font_cache_dir)
-except Exception:
-    pass
+# ---------------------------------------------------------------
 
-# Then imports for the rest of your app:
-import sys
 import streamlit as st
 import importlib
 from datetime import datetime, timedelta, timezone
