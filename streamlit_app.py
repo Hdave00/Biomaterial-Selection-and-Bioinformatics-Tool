@@ -1,20 +1,5 @@
-# --- HARD BLOCK MATPLOTLIB COMPLETELY (must be first lines) ---
-import os, sys
-
-# Make matplotlib impossible to import
-sys.modules["matplotlib"] = None
-sys.modules["matplotlib.pyplot"] = None
-
-# For safety, force MPL paths out of repo
-os.environ["MPLCONFIGDIR"] = "/tmp/mpl"
-os.environ["MPLBACKEND"] = "Agg"
-os.makedirs("/tmp/mpl", exist_ok=True)
-
-# Prevent .pyc creation
-os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-
-# ---------------------------------------------------------------
-
+# streamlit_app.py
+import sys
 import streamlit as st
 import importlib
 from datetime import datetime, timedelta, timezone
@@ -22,9 +7,9 @@ from dateutil import parser
 import logging
 
 
-__version__ = "1.0 beta"
-__release_date__ = "2025-11-20"
-__codename__ = "csv"
+__version__ = "1.4 beta"
+__release_date__ = "2025-11-21"
+__codename__ = "sql"
 
 # Configure logging
 logging.basicConfig(
@@ -32,7 +17,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-logging.info(f"Starting Biomaterial platform... v{__version__}")
+logging.info(f"Launching Biomaterial Platform — v{__version__} ({__codename__})")
 
 
 st.set_page_config(page_title="Biomaterial and Bioinformatics Platform", layout="wide")
@@ -187,6 +172,7 @@ st.title("Biomaterial and Bioinformatics Novel Platform")
 st.markdown("<p class='header-subtext'>Machine Learning-driven discovery, prediction, and selection of advanced biomaterials, unified in one pragmatic platform.</p>", unsafe_allow_html=True)
 
 
+# version data sidebar
 with st.sidebar:
     st.markdown(f"""
     <div style="opacity: 0.6; font-size: 0.9rem;">

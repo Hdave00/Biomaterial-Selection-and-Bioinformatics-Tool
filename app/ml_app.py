@@ -403,13 +403,13 @@ def run_ml_app():
                 st.dataframe(desc_df, use_container_width=True)
 
                 # --- Visualization ---
-                #import matplotlib.pyplot as plt
-                #fig, ax = plt.subplots()
-                #ax.bar(["Toxic", "Non-Toxic"], [preds["prob_toxic"], 1 - preds["prob_toxic"]])
-                #ax.set_ylabel("Probability")
-                #ax.set_ylim(0, 1)
-                #ax.set_title("Toxicity Classification Probability")
-                #st.pyplot(fig)
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots()
+                ax.bar(["Toxic", "Non-Toxic"], [preds["prob_toxic"], 1 - preds["prob_toxic"]])
+                ax.set_ylabel("Probability")
+                ax.set_ylim(0, 1)
+                ax.set_title("Toxicity Classification Probability")
+                st.pyplot(fig)
 
                 # --- Interpretation ---
                 st.markdown("### Interpretation")
