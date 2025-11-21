@@ -1,13 +1,26 @@
-# app/material_app.py
+# app/visualization.py
 """
 Streamlit UI for Material Selection + Materials Project integration.
+
+Features implemented:
+- Local-only search for Structural / Mechanical (as before) with optional free-text and optional pick-from-list
+- Automatic fallback to Materials Project when local search returns no results *if* user enables fallback
+- A separate "Materials Project Explorer" tab that provides a periodic-element grid, quick element-based searches
+  and an advanced filter form that maps directly to mp_api's documented search() parameters.
+- Material detail view shows summary fields, elasticity/thermo/bonds/etc (if available via mp_integration.query_materials_project)
+  and attempts a py3Dmol rendering when a structure is present; otherwise falls back to showing CIF/text.
+
+Notes:
+- This file expects `app/mp_integration.py` to expose three functions:
+    * query_materials_project(query: str | material_id) -> dict | None
+    * get_mp_property_dataframe(mp_json: dict) -> pandas.DataFrame
+    * query_mp_advanced_filters(...) -> list[dict] | None
+  The advanced filter function should accept only *official* mp_api search() kwargs (e.g. elements, formula, band_gap, density, energy_above_hull, is_stable, etc.)
+- MP API key should be loaded inside mp_integration (from .env). The UI does NOT ask the user for an API key.
 
 """
 
 import streamlit as st
-
-import sys
-sys.dont_write_bytecode = True
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -15,28 +28,15 @@ import os
 from typing import Optional, Any, Iterable
 from src.utils.csv_database_loader import query_table, get_db_path
 from src.utils import data_registry, filter_engine
-from src.utils.data_registry import schema_registry
 import sqlite3
 import json
 
-""" NOTE ---- PY3DMOL is too heavy for the free tier of streamlit, if used in future, use this method of loading
-# optional visualization helper, because app is apparently too heavy for streamlit in terms of JS
-_HAS_PY3DMOL = False
-
-def get_py3Dmol():
-    global _HAS_PY3DMOL
-    if not _HAS_PY3DMOL:
-        try:
-            import py3Dmol
-            _HAS_PY3DMOL = py3Dmol
-        except:
-            _HAS_PY3DMOL = None
-    return _HAS_PY3DMOL
-"""
-
-@st.cache_resource
-def get_db_connection():
-    return sqlite3.connect(get_db_path("materials.db"), check_same_thread=False)
+# optional visualization helper
+try:
+    import py3Dmol
+    _HAS_PY3DMOL = True
+except Exception:
+    _HAS_PY3DMOL = False
 
 
 # query_mp_advanced_filters is not being called directly due to extremely high data demands, its wrapped in caching that is called by the caching helper functions
@@ -48,8 +48,7 @@ from app.mp_integration import (
     cached_query_material,
 )
 
-
-# ---- caching helpers ----
+# caching helpers
 @st.cache_data(show_spinner=False)
 def load_dataset(path: str) -> Optional[pd.DataFrame]:
     if not os.path.exists(path):
@@ -62,22 +61,8 @@ st.markdown(
     """
     <style>
     /* Base body text bigger */
-    div.stApp {
-    font-size: 1.25rem !important;
-    }
-    div.stApp *:not(pre):not(code) {
-        font-size: inherit !important;
-    }
-
-    /* Force black text inside expanders */
-    .stExpanderContent div {
-        color: #000000 !important;
-    }
-
-    pre, code {
-    font-size: 0.9rem !important;
-    overflow-x: auto !important;
-    white-space: pre-wrap !important;
+    div.stApp * {
+        font-size: 1.25rem !important;
     }
 
     /* Main title */
@@ -132,7 +117,7 @@ st.markdown(
 )
 
 
-# ----- Session State Initialization -----
+# Session State Initialization
 # These keys are shared between tabs and should persist
 if "mp_selected_element" not in st.session_state:
     st.session_state.mp_selected_element = None  
@@ -147,7 +132,7 @@ if "mp_detailed_doc" not in st.session_state:
     st.session_state.mp_detailed_doc = None
 
 
-# ----- Session State for Local Search -----
+# Session State for Local Search 
 if "local_results" not in st.session_state:
     st.session_state.local_results = None
 
@@ -175,14 +160,12 @@ def display_results(df: pd.DataFrame, x=None, y=None, color=None):
             pass
 
 
-
-""" NOTE-------- This is for rendering 3d structures using py3dmol, too heavy, removed for now.
 def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int = 450) -> str:
 
-    
-    # Render CIF structure to embeddable HTML using py3Dmol.
-    # If py3Dmol fails or is unavailable, return a compact <pre> fallback.
-    
+    """
+    Render CIF structure to embeddable HTML using py3Dmol.
+    If py3Dmol fails or is unavailable, return a compact <pre> fallback.
+    """
 
     if not cif_text:
         return "<pre>No CIF data provided.</pre>"
@@ -203,78 +186,6 @@ def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int
         return v._make_html() if hasattr(v, "_make_html") else "<pre>Could not generate 3D view.</pre>"
     except Exception as e:
         return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>Structure render failed: {e}</pre>"
-"""
-
-
-# ---------------- Autocomplete from dataframe column helper, currentlyonly for cytotoxicity ----------------
-def db_autocomplete_input(label: str, df: pd.DataFrame, col: str, max_options: int = 200):
-    """
-    Provide a lightweight autocomplete UI:
-    - If column exists, show a selectbox of common values + 'Other...' option.
-    - If user picks 'Other...' or column missing, show free text input.
-    Returns the final string (or None if left blank).
-    """
-    if df is None or col not in df.columns:
-        # fallback to free text if column missing
-        return st.text_input(label, "")
-
-    # get unique values (limit to keep UI snappy)
-    vals = pd.Series(df[col].dropna().astype(str).unique()).sort_values()
-    if len(vals) > max_options:
-        vals = vals.sample(n=max_options, random_state=1).sort_values()
-
-    opts = [""] + vals.tolist() + ["Other..."]
-    selection = st.selectbox(label, opts)
-    if selection == "Other...":
-        return st.text_input(f"{label} (custom)", "")
-    return selection
-
-# ---------------- Schema card UI Helper ----------------
-def render_schema_card(schema: dict) -> str:
-    """
-    Render an attractive schema card with inline styling (Tailwind-like).
-    Keep it lightweight and safe for Streamlit.
-    """
-    if not schema:
-        return ""
-    
-    title = schema.get("title", "Schema")
-    desc = schema.get("description", "")
-    cols = schema.get("columns", [])
-    example = schema.get("example", {})
-    
-    card_html = f"""
-    <div style="border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 6px 18px rgba(16,24,40,0.08); background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(249,250,251,1) 100%); border:1px solid rgba(226,232,240,0.6); font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div>
-                <div style="font-size:16px; font-weight:700;">{title}</div>
-                <div style="font-size:12px; color:#475569; margin-top:4px;">{desc}</div>
-            </div>
-            <div style="font-size:12px; color:#6b7280;">Columns: <strong>{len(cols)}</strong></div>
-        </div>
-        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-    """
-    
-    for c in cols:
-        card_html += f"""<span style="background:#eef2ff; color:#3730a3; padding:6px 8px; border-radius:999px; font-size:12px;">{c}</span>"""
-    
-    # NOTE---- this if block is only if we need slicing [:8] in the future to restrict columns
-    # if len(cols) > 8:
-    #     card_html += f"<span style='color:#6b7280; font-size:12px; padding:6px 0 0 6px;'>+{len(cols)-8} more</span>"
-    
-    card_html += """
-        <div style='margin-top:12px; display:flex; gap:12px; align-items:flex-start;'>
-            <div style='flex:1;'>
-                <div style='font-size:13px; color:#374151; font-weight:600;'>Example</div>
-                <pre style='background:#ffffff; padding:8px; border-radius:8px; font-size:12px; color:#0f172a;'>
-    """
-    
-    for k, v in example.items():
-        card_html += f"{k}: {v}\n"
-    
-    card_html += "</pre></div></div></div>"
-    
-    return card_html
 
 
 def safe_iter(x: Any):
@@ -440,7 +351,11 @@ def show_mp_card(mp_json: dict):
             try:
                 cif_text = extract_cif_text(structure)
                 if cif_text:
-                        st.caption("Structure available but could not be visualized.3D structure viewer disabled (until further notice).")
+                    html = _render_structure_html_from_cif(cif_text, width=700, height=450)
+                    if isinstance(html, str):
+                        st.components.v1.html(html, height=480, scrolling=False)
+                    else:
+                        st.caption("Structure available but could not be visualized.")
                 else:
                     st.caption("Structure present, but no CIF text extractable.")
             except Exception as e:
@@ -560,83 +475,35 @@ def run_selection_app():
         st.subheader('Local Database Search')
 
         # dataset selector nested inside the Local Search UI
-        domain = st.selectbox(
-            "Select data domain",
-            ["Structural Materials", "High-Entropy Alloys", "Corrosion Database", "Polymers", "Cytotoxicity"]
-        )
+        domain = st.selectbox("Select data domain", ["Structural Materials", "High-Entropy Alloys", "Corrosion Database", "Polymers"])
 
         # prepare dataset based on selection
         dataset_key = {
             "Structural Materials": "structural",
             "High-Entropy Alloys": "high_entropy",
             "Corrosion Database": "corrosion",
-            "Polymers": "polymers",
-            "Cytotoxicity": "cytotoxicity"
+            "Polymers": "polymers"
         }[domain]
 
-        # SQLite NEW DATABASE LOADER ---
+        # load and prepare using the registry (we'll call the module loader directly and cache via st.cache_data)
         @st.cache_data(show_spinner=False)
-        def load_domain_from_db(domain_key: str):
-
-            """
-            Load a DataFrame for a given domain by querying its SQLite database.
-            Applies the same prepare_* functions as before for consistency.
-            """
-            # Map domain -> database file & table name
-            db_map = {
-                "structural": ("materials.db", "structural_materials"),
-                "high_entropy": ("materials.db", "high_entropy_alloys"),
-                "corrosion": ("corrosion.db", "corr_lookup"),
-                "polymers": ("polymer.db", "polymer_lookup"),
-                "cytotoxicity": ("cytotoxicity.db", "cytotoxicity_lookup")
-            }
-
-            if domain_key not in db_map:
+        def load_prepared(key: str):
+            path = data_registry.get_dataset_path(key)
+            if not path or not os.path.exists(path):
                 return None, {}
+            raw = pd.read_csv(path, low_memory=False)
+            # call appropriate prepare function
+            if key == "structural":
+                return data_registry.prepare_structural_df(raw)
+            if key == "corrosion":
+                return data_registry.prepare_corrosion_df(raw)
+            if key == "polymers":
+                return data_registry.prepare_polymers_df(raw)
+            if key == "high_entropy":
+                return data_registry.prepare_high_entropy_df(raw)
+            return data_registry.prepare_structural_df(raw)
 
-            db_file, table_name = db_map[domain_key]
-            db_path = get_db_path(db_file)
-
-            # Pull entire domain table (fast — SQLite has no problem with large reads)
-            df = query_table(db_path, table_name)
-
-            # Apply the same normalizing prepare_* functions already used in CSV pipeline
-            if domain_key == "structural":
-                return data_registry.prepare_structural_df(df)
-            if domain_key == "high_entropy":
-                return data_registry.prepare_high_entropy_df(df)
-            if domain_key == "corrosion":
-                return data_registry.prepare_corrosion_df(df)
-            if domain_key == "polymers":
-                return data_registry.prepare_polymers_df(df)
-            if domain_key == "cytotoxicity":
-                return df, {"nrows": len(df), "columns": df.columns.tolist()}
-
-            return df, {}
-        
-        schema = schema_registry.get(dataset_key)
-        if schema:
-            st.markdown("<h3 style='color:#000000 !important'>📘 Domain Schema Guide</h3>", unsafe_allow_html=True)
-
-            # pretty card on left, full details in expander
-            col_card, col_details = st.columns([1.2, 2])
-            with col_card:
-                st.markdown(render_schema_card(schema), unsafe_allow_html=True)
-
-            with col_details:
-                with st.expander(f"{schema['title']} — Full Schema & Example", expanded=False):
-                    st.markdown(f"<p style='color:#000000 !important;'><strong>Description:</strong> {schema['description']}</p>", unsafe_allow_html=True)
-                    st.markdown("<p style='color:#000000 !important;'><strong>Columns:</strong></p>", unsafe_allow_html=True)
-                    st.code("\n".join(schema["columns"]), language="text")
-                    st.markdown("<p style='color:#000000 !important;'><strong>Example entry:</strong></p>", unsafe_allow_html=True)
-
-                    example_html = "<pre style='background:#f9fafb; padding:8px; border-radius:8px; color:#000000 !important;'>"
-                    for k, v in schema["example"].items():
-                        example_html += f"{k}: {v}\n"
-                    example_html += "</pre>"
-                    st.markdown(example_html, unsafe_allow_html=True)
-
-        df, meta = load_domain_from_db(dataset_key)
+        df, meta = load_prepared(dataset_key)
         if df is None:
             st.error(f"Dataset for '{domain}' not found at {data_registry.get_dataset_path(dataset_key)}")
             return
@@ -744,30 +611,6 @@ def run_selection_app():
             if density_min is not None and 'Density' in df.columns:
                 filter_specs['Density'] = {"min": density_min}
 
-        # E: Cytotoxicity
-        elif dataset_key == "cytotoxicity":
-            with col1:
-                # Suggest CAS or Name via autocomplete
-                cas_val = db_autocomplete_input("CAS (optional)", df, "CAS")
-                name_val = db_autocomplete_input("Compound Name (optional)", df, "Name")
-                free_text = st.text_input("Free-text search (name, clean_name, method)", "")
-
-            with col2:
-                cc50_min = st.number_input("Min CC50 (mM, optional)", 0.0, 1e6, value=None)
-                cell_line = db_autocomplete_input("Cell line (optional)", df, "Cell_line")
-
-            # build filters
-            if cas_val:
-                filter_specs['CAS'] = {"values": [cas_val]}
-            if name_val:
-                filter_specs['Name'] = name_val
-            if free_text:
-                filter_specs['free_text'] = free_text
-            if cc50_min is not None:
-                filter_specs['CC50_mM'] = {"min": cc50_min}
-            if cell_line:
-                filter_specs['Cell_line'] = {"values": [cell_line]}
-
         # perform search when user clicks search
         do_search = st.button('Search Local')
         if do_search:
@@ -812,6 +655,10 @@ def run_selection_app():
                     else:
                         st.warning('Materials Project has no entry for the selected local material.')
 
+    # Materials Project Explorer tab left unchanged
+    if tab_choice == 'Materials Project Explorer':
+        # existing logic continues unchanged
+        pass
 
 
     # Materials Project Explorer Section
