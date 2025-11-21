@@ -11,8 +11,6 @@ import tempfile
 import re
 from typing import Tuple, Optional
 
-BASE_DB_DIR = os.environ.get("BIOMAT_DB_DIR", "/tmp/master_database")
-os.makedirs(BASE_DB_DIR, exist_ok=True)
 
 # Path in repository where dev-time DBs live (read-only on cloud)
 REPO_DB_DIR = os.path.join(
@@ -22,7 +20,8 @@ REPO_DB_DIR = os.path.join(
 
 def get_db_path(name: str) -> str:
     """Return full runtime-writable path for a DB filename."""
-    return os.path.join(BASE_DB_DIR, name)
+
+    return os.path.join(REPO_DB_DIR, name)
 
 def copy_repo_dbs_to_runtime():
     """
@@ -175,3 +174,8 @@ def run_sql(db_path: str, sql: str) -> pd.DataFrame:
     df = pd.read_sql_query(sql, conn)
     conn.close()
     return df
+
+
+if __name__ == "__main__":
+    from src.utils.csv_database_loader import copy_repo_dbs_to_runtime
+    copy_repo_dbs_to_runtime()
