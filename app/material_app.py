@@ -4,11 +4,6 @@ Streamlit UI for Material Selection + Materials Project integration.
 
 """
 
-import matplotlib
-matplotlib.use("Agg")  # avoid any font manager init issues
-import plotly.io as pio
-pio.renderers.default = "iframe"  # safer on Streamlit Cloud
-
 import streamlit as st
 
 import pandas as pd
@@ -18,7 +13,6 @@ import os
 from typing import Optional, Any, Iterable
 from src.utils.csv_database_loader import query_table, get_db_path
 from src.utils import data_registry, filter_engine
-from src.utils.data_registry import schema_registry
 import sqlite3
 import json
 
@@ -107,12 +101,6 @@ st.markdown(
         font-size: 1.4rem !important;
         padding: 0.6rem 1.2rem !important;
     }
-    /* Result / MP cards */
-    .result-card {
-        font-size: 1.3rem !important;
-        line-height: 1.6rem !important;
-        padding: 1rem !important;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -198,49 +186,7 @@ def db_autocomplete_input(label: str, df: pd.DataFrame, col: str, max_options: i
         return st.text_input(f"{label} (custom)", "")
     return selection
 
-
-# ---------------- Schema card UI Helper ----------------
-def render_schema_card(schema: dict) -> str:
-    """
-    Render an attractive schema card with inline styling (Tailwind-like).
-    Keep it lightweight and safe for Streamlit.
-    """
-    if not schema:
-        return ""
-    title = schema.get("title", "Schema")
-    desc = schema.get("description", "")
-    cols = schema.get("columns", [])
-    example = schema.get("example", {})
-    card_html = f"""
-    <div style="border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 6px 18px rgba(16,24,40,0.08); background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(249,250,251,1) 100%); border:1px solid rgba(226,232,240,0.6); font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div>
-                <div style="font-size:16px; font-weight:700;">{title}</div>
-                <div style="font-size:12px; color:#475569; margin-top:4px;">{desc}</div>
-            </div>
-            <div style="font-size:12px; color:#6b7280;">Columns: <strong>{len(cols)}</strong></div>
-        </div>
-        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-    """
-
-    for c in cols:
-        card_html += f"""<span style="background:#eef2ff; color:#3730a3; padding:6px 8px; border-radius:999px; font-size:12px;">{c}</span>"""
-
-    # NOTE---- this if block is only if we need slicing [:8] in the future to restrict columns
-    # if len(cols) > 8:
-    #     card_html += f"<span style='color:#6b7280; font-size:12px; padding:6px 0 0 6px;'>+{len(cols)-8} more</span>"
     
-    card_html += """
-        <div style='margin-top:12px; display:flex; gap:12px; align-items:flex-start;'>
-            <div style='flex:1;'>
-                <div style='font-size:13px; color:#374151; font-weight:600;'>Example</div>
-                <pre style='background:#ffffff; padding:8px; border-radius:8px; font-size:12px; color:#0f172a;'>
-    """
-    for k, v in example.items():
-        card_html += f"{k}: {v}\n"
-    card_html += "</pre></div></div></div>"
-    return card_html
-
 
 def safe_iter(x: Any):
     """Return an iterable if x is dict/list-like, else yield x itself for display."""
@@ -534,27 +480,6 @@ def run_selection_app():
                 meta = {"nrows": len(df), "columns": df.columns.tolist()}
                 return df, meta
         
-        schema = schema_registry.get(dataset_key)
-        if schema:
-            st.markdown("<h3 style='color:#000000 !important'>📘 Domain Schema Guide</h3>", unsafe_allow_html=True)
-
-            # pretty card on left, full details in expander
-            col_card, col_details = st.columns([1.2, 2])
-            with col_card:
-                st.markdown(render_schema_card(schema), unsafe_allow_html=True)
-
-            with col_details:
-
-                with st.expander(f"{schema['title']} — Full Schema & Example", expanded=False):
-                    st.markdown(f"<p style='color:#000000 !important;'><strong>Description:</strong> {schema['description']}</p>", unsafe_allow_html=True)
-                    st.markdown("<p style='color:#000000 !important;'><strong>Columns:</strong></p>", unsafe_allow_html=True)
-                    st.code("\n".join(schema["columns"]), language="text")
-                    st.markdown("<p style='color:#000000 !important;'><strong>Example entry:</strong></p>", unsafe_allow_html=True)
-                    example_html = "<pre style='background:#f9fafb; padding:8px; border-radius:8px; color:#000000 !important;'>"
-                    for k, v in schema["example"].items():
-                        example_html += f"{k}: {v}\n"
-                    example_html += "</pre>"
-                    st.markdown(example_html, unsafe_allow_html=True)
         
         df, meta = load_domain_from_db(dataset_key)
 
