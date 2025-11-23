@@ -2,6 +2,17 @@
 import pandas as pd
 from typing import Tuple, Dict, Any, List, Optional
 
+
+def safe_numeric(value):
+    if value is None:
+        return None
+    try:
+        v = float(value)
+        return v
+    except Exception:
+        return None
+
+
 def free_text_mask(df: pd.DataFrame, text: str) -> pd.Series:
     """Return boolean mask where any column contains the free-text (case-insensitive)."""
     if not text:
@@ -30,6 +41,7 @@ def apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> Tuple[pd.DataFra
     """
     if df is None:
         return pd.DataFrame(), []
+        
 
     mask = pd.Series([True] * len(df), index=df.index)
     missing_cols = []
@@ -52,16 +64,21 @@ def apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> Tuple[pd.DataFra
 
         # numeric range filter
         if isinstance(spec, dict) and ("min" in spec or "max" in spec):
-            try:
-                # coerce to numeric for comparison
-                ser_num = pd.to_numeric(col_ser, errors='coerce')
-                if spec.get("min") is not None:
-                    mask &= (ser_num >= spec["min"]).fillna(False)
-                if spec.get("max") is not None:
-                    mask &= (ser_num <= spec["max"]).fillna(False)
-            except Exception:
-                missing_cols.append(col)
-                continue
+            min_val = spec.get("min")
+            max_val = spec.get("max")
+
+            def check_row(v):
+                v = safe_numeric(v)
+                if v is None:
+                    return False
+                if min_val is not None and v < min_val:
+                    return False
+                if max_val is not None and v > max_val:
+                    return False
+                return True
+
+            mask &= col_ser.apply(check_row)
+            continue
 
         # categorical / exact values
         elif isinstance(spec, dict) and "values" in spec:

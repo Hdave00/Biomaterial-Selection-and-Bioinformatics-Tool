@@ -3,14 +3,23 @@
 Streamlit UI for Material Selection + Materials Project integration.
 
 """
-
 import streamlit as st
+
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import os
 from typing import Optional, Any, Iterable
+from src.utils.csv_database_loader import query_table, get_master_db_path, get_distinct_values
 from src.utils import data_registry, filter_engine
+from src.utils.data_registry import SCHEMA_REGISTRY
+import sqlite3
+import json
+import altair as alt
+
+
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO) 
 
 # optional visualization helper
 try:
@@ -29,12 +38,23 @@ from app.mp_integration import (
     cached_query_material,
 )
 
-# caching helpers
-@st.cache_data(show_spinner=False)
-def load_dataset(path: str) -> Optional[pd.DataFrame]:
-    if not os.path.exists(path):
-        return None
-    return pd.read_csv(path)
+
+@st.cache_resource
+def get_db_connection():
+    # one connection per session; check_same_thread=False for Streamlit
+    return sqlite3.connect(get_master_db_path(), check_same_thread=False)
+
+
+# Function is called in run_selection_app(), right before the "Materials Project" API section. Its takes new_items, stored them in the session state,
+# in a list, that list is then merged with the list of queried results, and the current session is updated to be merged with local results.
+# Its main purpose is to eliminate the recursive rerun loop when session_state.local_results grows. Doing this, we dont keep appending lists or items
+# to the current state, but just make the updates idempotent and call it like "update_local_results(local_results)", to also prevent the fallback to
+# stop the query being transferred to the materials project API as there is NO endpoint that can handle the local search query.
+def update_local_results(new_items):
+
+    current = st.session_state.get("local_results", [])
+    merged = list({*current, *new_items})  # deduplicate
+    st.session_state.local_results = merged
 
 
 # CSS for the page
@@ -42,10 +62,21 @@ st.markdown(
     """
     <style>
     /* Base body text bigger */
-    div.stApp * {
+    div.stApp {
         font-size: 1.25rem !important;
     }
-
+    div.stApp *:not(pre):not(code) {
+        font-size: inherit !important;
+    }
+    /* Force black text inside expanders */
+    .stExpanderContent div {
+        color: #000000 !important;
+    }
+    pre, code {
+        font-size: 0.9rem !important;
+        overflow-x: auto !important;
+        white-space: pre-wrap !important;
+    }
     /* Main title */
     .large-title {
         font-size: 3.5rem !important;
@@ -54,19 +85,16 @@ st.markdown(
         color: #f0f0f0 !important;
         margin-bottom: 1.5rem !important;
     }
-
     /* Subheaders */
     h2, h3, h4 {
         font-size: 2rem !important;
         font-weight: 700 !important;
     }
-
     /* Expander headers */
     .stExpanderHeader {
         font-size: 1.5rem !important;
         font-weight: 700 !important;
     }
-
     /* Metric text */
     .stMetricValue {
         font-size: 2.5rem !important;
@@ -74,18 +102,15 @@ st.markdown(
     .stMetricLabel {
         font-size: 1.5rem !important;
     }
-
     /* Table text */
     div.stDataFrame table td, div.stDataFrame table th {
         font-size: 1.3rem !important;
     }
-
     /* Buttons */
     button {
         font-size: 1.4rem !important;
         padding: 0.6rem 1.2rem !important;
     }
-
     /* Result / MP cards */
     .result-card {
         font-size: 1.3rem !important;
@@ -97,26 +122,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
-# Session State Initialization
+# ----- Session State Initialization -----
 # These keys are shared between tabs and should persist
 if "mp_selected_element" not in st.session_state:
-    st.session_state.mp_selected_element = None  
-
+    st.session_state.mp_selected_element = None
 if "mp_search_results" not in st.session_state:
-    st.session_state.mp_search_results = None   
-
+    st.session_state.mp_search_results = None
 if "mp_selected_material_id" not in st.session_state:
-    st.session_state.mp_selected_material_id = None 
-
+    st.session_state.mp_selected_material_id = None
 if "mp_detailed_doc" not in st.session_state:
     st.session_state.mp_detailed_doc = None
 
-
-# Session State for Local Search 
+# ----- Session State for Local Search -----
 if "local_results" not in st.session_state:
     st.session_state.local_results = None
-
 if "local_selected" not in st.session_state:
     st.session_state.local_selected = None
 
@@ -133,27 +152,33 @@ def display_results(df: pd.DataFrame, x=None, y=None, color=None):
     st.success(f"Found {len(df)} matching records.")
     st.dataframe(df.head(40), use_container_width=True)
 
+    # Only plot if x and y are valid columns
     if x in df.columns and y in df.columns:
         try:
-            fig = px.scatter(df, x=x, y=y, color=color, hover_name=df.columns[0])
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception:
-            pass
+            chart = alt.Chart(df).mark_circle(size=60).encode(
+                x=alt.X(x, type='quantitative'),
+                y=alt.Y(y, type='quantitative'),
+                tooltip=list(df.columns)  # hover info
+            )
+
+            # add color encoding if valid
+            if color in df.columns:
+                chart = chart.encode(color=color)
+
+            st.altair_chart(chart, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Unable to render scatter plot: {e}")
 
 
 def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int = 450) -> str:
-
     """
     Render CIF structure to embeddable HTML using py3Dmol.
     If py3Dmol fails or is unavailable, return a compact <pre> fallback.
     """
-
     if not cif_text:
         return "<pre>No CIF data provided.</pre>"
-
     if not _HAS_PY3DMOL:
         return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>CIF view unavailable (py3Dmol missing)</pre>"
-
     try:
         v = py3Dmol.view(width=width, height=height)
         v.addModel(cif_text, "cif")
@@ -162,17 +187,101 @@ def _render_structure_html_from_cif(cif_text: str, width: int = 700, height: int
         html = getattr(v, "get_html", getattr(v, "_make_html", None))
         if callable(html):
             return html()
-        
         # fallback for older versions
         return v._make_html() if hasattr(v, "_make_html") else "<pre>Could not generate 3D view.</pre>"
     except Exception as e:
         return f"<pre style='white-space:pre-wrap; max-height:{height}px; overflow:auto;'>Structure render failed: {e}</pre>"
 
 
+# Autocomplete from dataframe column helper, currentlyonly for cytotoxicity ----------------
+def db_autocomplete_input(label: str, df: pd.DataFrame, col: str, max_options: int = 200):
+    """
+    Autocomplete powered by SQLite DISTINCT values:
+      - Shows selectbox of up to `max_options` values + 'Other...'
+      - If column or table missing OR empty: fallback to free text
+      - If user selects 'Other...', show free text field
+    Returns the chosen string (or None if left empty)
+    """
+
+    # Safety check — Streamlit must know which table is active
+    table = st.session_state.get("current_table_name")
+    if not table:
+        st.warning("No table selected.")
+        return None
+
+    # Try fetching distinct values
+    try:
+        options = get_distinct_values(table, col, limit=max_options)
+        options = [o for o in options if o and o.strip() and o.lower() != "nan"]
+    except Exception:
+        options = []
+
+    # If nothing found — free text only
+    if not options:
+        return st.text_input(label)
+
+    # Add "Other..." entry
+    ui_options = [""] + options + ["Other..."]
+    choice = st.selectbox(label, ui_options)
+
+    # Free text branch
+    if choice == "Other...":
+        return st.text_input(f"{label} (specify)")
+
+    # Blank selection
+    if choice == "":
+        return None
+
+    return choice
+
+
+
+# ---------------- Schema card UI Helper ----------------
+def render_schema_card(schema: dict) -> str:
+    """
+    Render an attractive schema card with inline styling (Tailwind-like).
+    Keep it lightweight and safe for Streamlit.
+    """
+    if not schema:
+        return ""
+    title = schema.get("title", "Schema")
+    desc = schema.get("description", "")
+    cols = schema.get("columns", [])
+    example = schema.get("example", {})
+    card_html = f"""
+    <div style="border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 6px 18px rgba(16,24,40,0.08); background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(249,250,251,1) 100%); border:1px solid rgba(226,232,240,0.6); font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <div style="font-size:16px; font-weight:700;">{title}</div>
+                <div style="font-size:12px; color:#475569; margin-top:4px;">{desc}</div>
+            </div>
+            <div style="font-size:12px; color:#6b7280;">Columns: <strong>{len(cols)}</strong></div>
+        </div>
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+    """
+
+    for c in cols:
+        card_html += f"""<span style="background:#eef2ff; color:#3730a3; padding:6px 8px; border-radius:999px; font-size:12px;">{c}</span>"""
+
+    # NOTE---- this if block is only if we need slicing [:8] in the future to restrict columns
+    # if len(cols) > 8:
+    #     card_html += f"<span style='color:#6b7280; font-size:12px; padding:6px 0 0 6px;'>+{len(cols)-8} more</span>"
+    
+    card_html += """
+        <div style='margin-top:12px; display:flex; gap:12px; align-items:flex-start;'>
+            <div style='flex:1;'>
+                <div style='font-size:13px; color:#374151; font-weight:600;'>Example</div>
+                <pre style='background:#ffffff; padding:8px; border-radius:8px; font-size:12px; color:#0f172a;'>
+    """
+    for k, v in example.items():
+        card_html += f"{k}: {v}\n"
+    card_html += "</pre></div></div></div>"
+    return card_html
+
+    
+
 def safe_iter(x: Any):
-
     """Return an iterable if x is dict/list-like, else yield x itself for display."""
-
     if x is None:
         return []
     if isinstance(x, dict):
@@ -184,34 +293,25 @@ def safe_iter(x: Any):
 
 
 def extract_cif_text(structure) -> Optional[str]:
-
     """
-    Try several robust ways to get a CIF text string from a materials-project
-    'structure' object. Return None if we cannot obtain a CIF string.
+    Try several robust ways to get a CIF text string from a materials-project 'structure' object.
+    Return None if we cannot obtain a CIF string.
     """
-
     # first case, already a string, may be a CIF or representation
     if isinstance(structure, str):
         txt = structure.strip()
-
         # main heuristic: if it looks like a CIF or POSCAR, return it
         if (
-            txt.startswith("data_")
-            or txt.lower().startswith("data_")
-            or "CELL_LENGTH" in txt.upper()
-            or txt.lower().startswith("# cif")
-            or txt.startswith("CRYST1")
-            or "loop_" in txt
+            txt.startswith("data_") or txt.lower().startswith("data_") or
+            "CELL_LENGTH" in txt.upper() or txt.lower().startswith("# cif") or
+            txt.startswith("CRYST1") or "loop_" in txt
         ):
             return txt
-        
         # even if not a CIF, return string (py3Dmol may parse CIF-like strings)
         return txt
-
     # then ideally pymatgen Structure-like: try .to(fmt='cif') or .to(fmt='poscar')
     try:
         if hasattr(structure, "to"):
-
             # try multiple versions, 'cif' then 'poscar'
             for fmt in ("cif", "poscar", "json"):
                 try:
@@ -222,13 +322,11 @@ def extract_cif_text(structure) -> Optional[str]:
                     continue
     except Exception:
         pass
-
     # then, some mp-api returns a dictionary or object with 'cif' or 'structure' keys
     if isinstance(structure, dict):
         for key in ("cif", "cif_string", "structure", "pretty_formula"):
             if key in structure and isinstance(structure[key], str) and structure[key].strip():
                 return structure[key]
-
     # finally fallback: try str() if not empty
     try:
         txt = str(structure)
@@ -236,20 +334,15 @@ def extract_cif_text(structure) -> Optional[str]:
             return txt
     except Exception:
         pass
-
     return None
 
 
 def safe_table(data_dict, title=None):
-
     """Render a clean table that hides N/A, None, and empty columns."""
-
     if not isinstance(data_dict, dict) or not data_dict:
         st.caption(f"No {title or 'valid'} data available.")
         return
-
     df = pd.DataFrame(list(data_dict.items()), columns=["Property", "Value"])
-
     # drop N/A, None, or blank values
     df = df[
         df["Value"].notna() &
@@ -264,29 +357,22 @@ def safe_table(data_dict, title=None):
 
 
 def show_mp_card(mp_json: dict):
-
     """
-    Display a Materials Project card in Streamlit with summary, elasticity,
-    structure, thermo, bonding, magnetism, oxidation states, and robocrystallographer info.
+    Display a Materials Project card in Streamlit with summary, elasticity, structure, thermo, bonding, magnetism, oxidation states, and robocrystallographer info.
     Cleanly skips empty data and avoids raw CIF dumps.
     """
-
     if not mp_json:
         st.info("No Materials Project data available.")
         return
-
     st.markdown("<div class='result-card'>", unsafe_allow_html=True)
     left_col, right_col = st.columns([2, 3])
-
-    # Left column: core info 
+    # Left column: core info
     with left_col:
         st.subheader(mp_json.get("pretty_formula", mp_json.get("material_id", "Unknown")))
         st.caption(mp_json.get("material_id", ""))
-
         summary = mp_json.get("summary") or mp_json.get("remarks") or mp_json.get("description")
         if summary:
             st.write(summary)
-
         # Clean metrics (skip None)
         metrics = {
             "Density (g/cm³)": mp_json.get("density"),
@@ -300,30 +386,23 @@ def show_mp_card(mp_json: dict):
                 c.metric(label, val)
         else:
             st.caption("No numeric metrics available.")
-
         # Chemical system / formula
         chemsys = (
-            mp_json.get("chemsys")
-            or mp_json.get("composition")
-            or mp_json.get("formula_pretty")
+            mp_json.get("chemsys") or mp_json.get("composition") or mp_json.get("formula_pretty")
         )
         if chemsys:
             st.write(f"**System / formula:** {chemsys}")
-
     # Right column: Elasticity + 3D Structure
     with right_col:
         elasticity = mp_json.get("elasticity") or {}
-
         # filter out None values
         elasticity = {k: v for k, v in elasticity.items() if v is not None}
-
         if elasticity:
             with st.expander("Elasticity data", expanded=False):
                 for key, val in elasticity.items():
                     st.write(f"- **{key}**: {val}")
         else:
             st.caption("No elasticity data available.")
-
         # NOTE nested sructures to mimic the data from the api in json format
         # Structure rendering
         structure = mp_json.get("structure") or mp_json.get("cif")
@@ -343,7 +422,6 @@ def show_mp_card(mp_json: dict):
                 st.warning(f"Structure could not be displayed: {e}")
         else:
             st.caption("No structure data available.")
-
     # --- Nested properties (thermo, bonding, magnetism, oxidation, robocrystallography) ---
     nested_docs = {
         "Thermodynamic data": mp_json.get("thermo") or mp_json.get("thermodynamics"),
@@ -352,16 +430,12 @@ def show_mp_card(mp_json: dict):
         "Oxidation states": mp_json.get("oxidation_states") or mp_json.get("oxidation_state") or mp_json.get("oxi_states"),
         "Robocrystallographer": mp_json.get("robocrys") or mp_json.get("robocrystallogapher") or mp_json.get("robocryst"),
     }
-
     for title, data in nested_docs.items():
-
         # Skip completely empty or None fields
         if not data:
             continue
-
         with st.expander(title, expanded=False):
             if isinstance(data, (dict, list)):
-
                 cleaned = [d for d in safe_iter(data) if d]
                 if not cleaned:
                     st.caption("No data available.")
@@ -376,55 +450,12 @@ def show_mp_card(mp_json: dict):
                             st.write(entry)
             else:
                 st.write(str(data))
-
     st.markdown("</div>", unsafe_allow_html=True)
-
-
-def render_property_comparison(df_local: Optional[pd.DataFrame], mp_df: Optional[pd.DataFrame], selected_name: str):
-
-    """
-    Radar comparison between local properties (if present) and MP-derived properties (mp_df).
-    """
-
-    props = ['density', 'E_est_GPa', 'Tensile_Strength_MPa']
-    local_vals, mp_vals = [], []
-
-    # find the local row if possible (first match)
-    if df_local is not None:
-        row = df_local[df_local.iloc[:, 0].str.contains(selected_name, case=False, na=False)]
-        local_row = row.iloc[0] if not row.empty else None
-    else:
-        local_row = None
-
-    for p in props:
-        if local_row is not None and p in df_local.columns:
-            try:
-                local_vals.append(float(local_row.get(p, 0) or 0))
-            except Exception:
-                local_vals.append(0)
-        else:
-            local_vals.append(0)
-
-        if mp_df is not None and p in mp_df.columns:
-            try:
-                mp_vals.append(float(mp_df.iloc[0].get(p, 0) or 0))
-            except Exception:
-                mp_vals.append(0)
-        else:
-            mp_vals.append(0)
-
-    # build plotly gigure
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(r=local_vals, theta=props, fill='toself', name='Local DB'))
-    fig.add_trace(go.Scatterpolar(r=mp_vals, theta=props, fill='toself', name='Materials Project'))
-    fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, title=f'Property comparison for {selected_name}')
-    st.plotly_chart(fig, use_container_width=True)
+    
 
 
 def flatten_dict(d, parent_key='', sep='.'):
-
     """Recursively flatten nested dictionaries for table display."""
-
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -435,76 +466,135 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
+
 # ---------- UI NOTE -> this is where it gets really convoluted because of how streamlit renders and queries
 def run_selection_app():
+
     st.markdown("<div class='large-title'>Material Selection Module</div>", unsafe_allow_html=True)
     st.write('Find the best materials based on engineering, biological, or chemical requirements.')
-
     tab_choice = st.radio("Choose module", ['Local Search (Database)', 'Materials Project Explorer'], index=0)
-
-    # tis is a temp fix: Load local dataset BEFORE the branches
-    local_unified = load_dataset('master_data/unified_material_data.csv')
-
-    # load structural by default (cached)
-    structural_df = load_dataset(data_registry.get_dataset_path("structural"))
-    # load others lazily only when needed
-    corrosion_df_raw = None
-    polymers_df_raw = None
-    hea_df_raw = None
-
+    
     if tab_choice == 'Local Search (Database)':
         st.subheader('Local Database Search')
-
         # dataset selector nested inside the Local Search UI
-        domain = st.selectbox("Select data domain", ["Structural Materials", "High-Entropy Alloys", "Corrosion Database", "Polymers"])
+        domain = st.selectbox(
+            "Select data domain",
+            ["Structural Materials", "High-Entropy Alloys", "Corrosion Database", "Polymers", "Cytotoxicity"]
+        )
 
         # prepare dataset based on selection
         dataset_key = {
             "Structural Materials": "structural",
             "High-Entropy Alloys": "high_entropy",
             "Corrosion Database": "corrosion",
-            "Polymers": "polymers"
+            "Polymers": "polymers",
+            "Cytotoxicity": "cytotoxicity"
         }[domain]
+        
+        # NOTE no caching where database is called
+        # NOTE no caching where database is called
+        def load_domain_from_db(domain_key: str):
+            """
+            Returns (df, meta) for a given domain_key.
+            domain_key must be one of: structural, high_entropy, corrosion, polymers, cytotoxicity
+            """
 
-        # load and prepare using the registry (we'll call the module loader directly and cache via st.cache_data)
-        @st.cache_data(show_spinner=False)
-        def load_prepared(key: str):
-            path = data_registry.get_dataset_path(key)
-            if not path or not os.path.exists(path):
+            table_map = {
+                "structural": "unified_material_data",
+                "high_entropy": "hea_lookup",
+                "corrosion": "corrosion_lookup",
+                "polymers": "polymer_lookup",
+                "cytotoxicity": "cytotoxicity_lookup",
+            }
+
+            if domain_key not in table_map:
+                st.error(f"Unknown domain_key: {domain_key}")
                 return None, {}
-            raw = pd.read_csv(path, low_memory=False)
-            # call appropriate prepare function
-            if key == "structural":
-                return data_registry.prepare_structural_df(raw)
-            if key == "corrosion":
-                return data_registry.prepare_corrosion_df(raw)
-            if key == "polymers":
-                return data_registry.prepare_polymers_df(raw)
-            if key == "high_entropy":
-                return data_registry.prepare_high_entropy_df(raw)
-            return data_registry.prepare_structural_df(raw)
 
-        df, meta = load_prepared(dataset_key)
-        if df is None:
+            table_name = table_map[domain_key]
+            db_path = get_master_db_path()
+
+            sql = f"SELECT * FROM {table_name}"
+            logger.info(f"Loading domain '{domain_key}' from table '{table_name}' using DB: {db_path}")
+            logger.info(f"SQL query: {sql}")
+
+            try:
+                conn = get_db_connection()
+                df = pd.read_sql_query(sql, conn)
+                logger.info(f"Loaded {len(df)} rows from {table_name}")
+            except Exception as e:
+                st.warning(f"Primary SQL read failed: {e}, attempting fallback")
+                df = query_table(db_path, table_name)
+                if df is not None:
+                    logger.info(f"Fallback loaded {len(df)} rows from {table_name}")
+
+            if df is None or df.empty:
+                st.warning(f"No data found in table '{table_name}'")
+                return None, {}
+
+            # Call the correct prepare_* function and ensure proper unpacking
+            if domain_key == "structural":
+                cleaned_df, meta = data_registry.prepare_structural_df(df)
+            elif domain_key == "high_entropy":
+                cleaned_df, meta = data_registry.prepare_high_entropy_df(df)
+            elif domain_key == "corrosion":
+                cleaned_df, meta = data_registry.prepare_corrosion_df(df)
+            elif domain_key == "polymers":
+                cleaned_df, meta = data_registry.prepare_polymers_df(df)
+            elif domain_key == "cytotoxicity":
+                cleaned_df, meta = data_registry.prepare_cytotoxicity_df(df)
+            else:
+                cleaned_df = df
+                meta = {"nrows": len(df), "columns": df.columns.tolist()}
+
+            logger.info(f"Returning cleaned DataFrame with {meta.get('nrows')} rows, columns: {meta.get('columns')[:8]}...")
+            return cleaned_df, meta
+        
+        schema = SCHEMA_REGISTRY.get(dataset_key)
+        if schema:
+            st.markdown("<h3 style='color:#000000 !important'>📘 Domain Schema Guide</h3>", unsafe_allow_html=True)
+
+            # pretty card on left, full details in expander
+            col_card, col_details = st.columns([1.2, 2])
+            with col_card:
+                st.markdown(render_schema_card(schema), unsafe_allow_html=True)
+
+            with col_details:
+
+                with st.expander(f"{schema['title']} — Full Schema & Example", expanded=False):
+                    st.markdown(f"<p style='color:#000000 !important;'><strong>Description:</strong> {schema['description']}</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='color:#000000 !important;'><strong>Columns:</strong></p>", unsafe_allow_html=True)
+                    st.code("\n".join(schema["columns"]), language="text")
+                    st.markdown("<p style='color:#000000 !important;'><strong>Example entry:</strong></p>", unsafe_allow_html=True)
+                    example_html = "<pre style='background:#f9fafb; padding:8px; border-radius:8px; color:#000000 !important;'>"
+                    for k, v in schema["example"].items():
+                        example_html += f"{k}: {v}\n"
+                    example_html += "</pre>"
+                    st.markdown(example_html, unsafe_allow_html=True)
+        
+        df, meta = load_domain_from_db(dataset_key)
+
+        if df is None or df.empty:
             st.error(f"Dataset for '{domain}' not found at {data_registry.get_dataset_path(dataset_key)}")
             return
-
         st.info(f"Loaded {meta.get('nrows', '?')} rows, columns: {', '.join(meta.get('columns', [])[:8])}...")
-
+        
         # build dynamic filters depending on dataset
         st.markdown("### Filters")
         col1, col2 = st.columns(2)
-
         filter_specs = {}
-
+        
         # A: structural filters (keep original structural inputs plus free text)
         if dataset_key == "structural":
+
             with col1:
                 pick_from_list = st.selectbox(
                     'Pick material family (optional)',
-                    [''] + sorted(df['Material_Type'].dropna().unique().tolist()) if 'Material_Type' in df.columns else ['']
+                    [''] + sorted(df['Material_Type'].dropna().unique().tolist())
+                    if 'Material_Type' in df.columns else ['']
                 )
                 free_text = st.text_input('Or type a material name / formula (optional)', '')
+
             with col2:
                 min_youngs = st.number_input("Min Young's Modulus (GPa)", 0.0, 500.0, 0.0)
                 min_tensile = st.number_input('Min Tensile Strength (MPa)', 0.0, 3000.0, 0.0)
@@ -517,6 +607,7 @@ def run_selection_app():
                 filter_specs['free_text'] = free_text
             filter_specs['Youngs_Modulus_GPa'] = {"min": min_youngs}
             filter_specs['Tensile_Strength_MPa'] = {"min": min_tensile}
+        
 
         # B: high-entropy alloys filters
         elif dataset_key == "high_entropy":
@@ -543,6 +634,7 @@ def run_selection_app():
                     "Numeric property to filter",
                     [''] + numeric_cols
                 )
+
                 min_value = st.number_input("Minimum value", 0.0, 1e9, 0.0)
 
             # build filters
@@ -550,20 +642,25 @@ def run_selection_app():
                 filter_specs['free_text'] = free_text
             if chosen_prop:
                 filter_specs[chosen_prop] = {"min": min_value}
-
+        
         # C: corrosion
         elif dataset_key == "corrosion":
+
             with col1:
                 free_text = st.text_input("Search corrosion dataset (material, environment, UNS, comments)", "")
                 material_group = st.text_input("Material Group (optional)", "")
+
             with col2:
                 temp_min = st.number_input("Min Temperature (deg C) (optional)", -100.0, 2000.0, value=None)
                 rate_min = st.number_input("Min Rate (mm/yr) (optional)", 0.0, 1e6, value=None)
+
             if free_text:
                 filter_specs['free_text'] = free_text
             if material_group:
                 filter_specs['Material_Group'] = {"values": [material_group]}
+
             if temp_min is not None:
+
                 # Attempt to use Temperature_deg_C if present
                 if "Temperature_deg_C" in df.columns:
                     filter_specs["Temperature_deg_C"] = {"min": temp_min}
@@ -574,7 +671,7 @@ def run_selection_app():
                     filter_specs[rate_cols[0]] = {"min": rate_min}
                 else:
                     st.warning("No numeric Rate column available in this corrosion dataset. Try free-text or other filters.")
-
+        
         # D: polymers
         elif dataset_key == "polymers":
             with col1:
@@ -591,59 +688,68 @@ def run_selection_app():
                 filter_specs['Tg'] = {"min": tg_min}
             if density_min is not None and 'Density' in df.columns:
                 filter_specs['Density'] = {"min": density_min}
+        
 
+        # E: Cytotoxicity
+        elif dataset_key == "cytotoxicity":
+
+            def normalize_cytotox(val):
+                if not val:
+                    return "unknown"
+                return str(val).strip().lower()
+            
+            tox_filter = st.multiselect(
+                "Cytotoxicity Level",
+                ["low", "medium", "high"]
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                cas_val = db_autocomplete_input("CAS (optional)", df, "CAS")
+                name_val = db_autocomplete_input("Compound Name (optional)", df, "Name")
+                free_text = st.text_input("Free-text search (name, clean_name, method)", "")
+
+            with col2:
+                cc50_min = st.number_input("Min CC50 (mM, optional)", 0.0, 1e6, value=None)
+                cell_line = db_autocomplete_input("Cell line (optional)", df, "Cell_line")
+
+            # build filters
+            if tox_filter:
+                filter_specs["Cytotoxicity_Level"] = {"values": tox_filter}
+            if cas_val:
+                filter_specs['CAS'] = {"values": [cas_val]}
+            if name_val:
+                filter_specs['Name'] = name_val
+            if free_text:
+                filter_specs['free_text'] = free_text
+            if cc50_min is not None:
+                filter_specs['CC50_mM'] = {"min": cc50_min}
+            if cell_line:
+                filter_specs['Cell_line'] = {"values": [cell_line]}
+        
         # perform search when user clicks search
         do_search = st.button('Search Local')
         if do_search:
+
+            if dataset_key == "cytotoxicity" and "Cytotoxicity_Level" in df.columns:
+                df["Cytotoxicity_Level"] = df["Cytotoxicity_Level"].apply(normalize_cytotox)
+
             results, missing_cols = filter_engine.apply_filters(df, filter_specs)
 
             if missing_cols:
-                st.warning(f"The following filter columns were not available in this dataset: {missing_cols}. Try using other filters or free-text search.")
+                st.warning(f"The following filter columns were not available in this dataset: {missing_cols}")
 
-            # show results via your existing display function
-            st.session_state.local_results = results
-            display_results(results, x='Youngs_Modulus_GPa' if 'Youngs_Modulus_GPa' in df.columns else None,
-                            y='Tensile_Strength_MPa' if 'Tensile_Strength_MPa' in df.columns else None,
-                            color='Material_Type' if 'Material_Type' in df.columns else None)
-
-            if not results.empty:
-                st.info('Pick a record from the results to view details or fetch MP data:')
-                st.selectbox(
-                    'Select from Local Results',
-                    results.iloc[:, 0].astype(str).tolist(),
-                    key='local_selected'
-                )
-
-            # fallback to MP for structural domain only
-            if dataset_key == "structural" and results.empty and fallback_to_mp:
-                st.info('No local results, attempting Materials Project fallback.')
-                mp_term = filter_specs.get('free_text') or pick_from_list or ''
-                if mp_term:
-                    mp_json = query_materials_project(mp_term)
-                    if mp_json:
-                        st.success('Found matches in Materials Project (fallback).')
-                        show_mp_card(mp_json)
-                    else:
-                        st.warning('No fallback match found on Materials Project.')
-
-            # allow fetching MP details for a selected local record (structural only)
-            if 'local_selected' in st.session_state and st.session_state.local_selected:
-                if st.button('Show Materials Project details for selected material'):
-                    picked = st.session_state.local_selected
-                    mp_json = query_materials_project(picked)
-                    if mp_json:
-                        show_mp_card(mp_json)
-                    else:
-                        st.warning('Materials Project has no entry for the selected local material.')
-
-
-
+            update_local_results(results)
+            display_results(results)
+            
+    
     # Materials Project Explorer Section
     # -------------------------
     elif tab_choice == 'Materials Project Explorer':
         st.subheader('Materials Project Explorer')
         st.write('Pick an element, or use the advanced filter panel to search MP summary data.')
-
+        
         # Quick Element Grid ---
         st.write('### Quick Element Selection')
         elements = [
@@ -658,113 +764,90 @@ def run_selection_app():
             'Tl','Pb','Bi','Po','At','Rn',
             'Fr','Ra'
         ]
-
         # set the columns per row in UI, the for each element in row, set the row as elements contiguiously after each other,
-        # and the cols as columns as long as 10 
+        # and the cols as columns as long as 10
         cols_per_row = 10
         for i in range(0, len(elements), cols_per_row):
             row = elements[i:i + cols_per_row]
             cols = st.columns(len(row))
-
-            # for each element in row, keep track and track which button in which row was clicked, set that as the current element, 
+            # for each element in row, keep track and track which button in which row was clicked, set that as the current element,
             # and DONT let it fall back to local database instead of Materials Project
             for j, el in enumerate(row):
                 if cols[j].button(el):
                     st.session_state.mp_selected_element = el
-                    st.session_state.mp_search_term = ""
-
-        # Reset chosen material if element changed
-        if st.session_state.get('last_selected_element') != st.session_state.get('mp_selected_element'):
-            st.session_state.mp_chosen_material_id = None
-            st.session_state.view_compound = False
-        st.session_state.last_selected_element = st.session_state.get('mp_selected_element')
-
+                    st.session_state.mp_search_term = ""  # Reset chosen material if element changed
+            if st.session_state.get('last_selected_element') != st.session_state.get('mp_selected_element'):
+                st.session_state.mp_chosen_material_id = None
+                st.session_state.view_compound = False
+                st.session_state.last_selected_element = st.session_state.get('mp_selected_element')
+        
         # Show compounds for selected element ---
         if st.session_state.get('mp_selected_element'):
             st.info(f"Selected element: {st.session_state.mp_selected_element}")
-
             with st.spinner("Fetching Materials Project data… this may take a minute ⏳"):
                 results = cached_query_mp_advanced_filters(elements=[st.session_state.mp_selected_element])
-
             if results:
                 st.session_state.mp_search_results = results
                 res_df = pd.DataFrame(results)
-
                 # Dropdown: pick material
                 sub_options = [
-                    f"{row['pretty_formula']} ({row['material_id']})" for idx, row in res_df.iterrows()
+                    f"{row['pretty_formula']} ({row['material_id']})"
+                    for idx, row in res_df.iterrows()
                 ]
                 chosen = st.selectbox("Pick a material", sub_options)
                 material_id = chosen.split("(")[-1].replace(")","").strip()
-
                 # View detailed info button
                 if st.button("View selected material"):
-
                     with st.spinner("Loading material details…"):
                         doc = cached_query_material(material_id)
+                        if doc:
+                            st.session_state.mp_detailed_doc = doc
+                            show_mp_card(doc)
+                            # Scalar overview table
+                            overview_keys = [
+                                "material_id", "pretty_formula", "density", "band_gap", "energy_above_hull",
+                                "formation_energy_per_atom", "is_stable"
+                            ]
+                            overview = {k: str(doc.get(k, "N/A")) for k in overview_keys}
+                            st.subheader("Material Overview")
+                            # Add symmetry + magnetism manually
+                            sym = doc.get("symmetry", {})
+                            overview["crystal_system"] = sym.get("crystal_system", "N/A")
+                            overview["space_group"] = sym.get("symbol", "N/A")
+                            overview["magnetic_ordering"] = doc.get("ordering", "N/A")
+                            overview["total_magnetization"] = doc.get("total_magnetization", "N/A")
+                            st.table(pd.DataFrame(list(overview.items()), columns=["Property","Value"]))
+                            # Atomic Sites / Wyckoff Positions
+                            if "sites" in doc and isinstance(doc["sites"], list):
+                                st.subheader("Atomic Sites / Wyckoff Positions")
+                                st.dataframe(pd.DataFrame(doc["sites"]))
+                            # Crystal parameters (from structure.lattice)
+                            st.subheader("Crystal Parameters")
+                            lattice = (
+                                doc.get("structure", {}).get("lattice")
+                                if isinstance(doc.get("structure"), dict)
+                                else None
+                            )
+                            if lattice:
+                                crystal_keys = ["a", "b", "c", "alpha", "beta", "gamma", "volume"]
+                                crystal_params = {k: str(lattice.get(k, "N/A")) for k in crystal_keys}
+                                st.table(pd.DataFrame(list(crystal_params.items()), columns=["Parameter", "Value"]))
+                            else:
+                                st.caption("No lattice data available.")
 
-                    if doc:
-                        st.session_state.mp_detailed_doc = doc
-                        show_mp_card(doc)
-
-                        # Scalar overview table
-                        overview_keys = [
-                            "material_id", "pretty_formula", "density", "band_gap",
-                            "energy_above_hull", "formation_energy_per_atom", "is_stable"
-                        ]
-                        overview = {k: str(doc.get(k, "N/A")) for k in overview_keys}
-                        st.subheader("Material Overview")
-
-                        # Add symmetry + magnetism manually
-                        sym = doc.get("symmetry", {})
-                        overview["crystal_system"] = sym.get("crystal_system", "N/A")
-                        overview["space_group"] = sym.get("symbol", "N/A")
-
-                        overview["magnetic_ordering"] = doc.get("ordering", "N/A")
-                        overview["total_magnetization"] = doc.get("total_magnetization", "N/A")
-
-                        st.table(pd.DataFrame(list(overview.items()), columns=["Property","Value"]))
-
-                        # Atomic Sites / Wyckoff Positions
-                        if "sites" in doc and isinstance(doc["sites"], list):
-                            st.subheader("Atomic Sites / Wyckoff Positions")
-                            st.dataframe(pd.DataFrame(doc["sites"]))
-
-                        # Crystal parameters (from structure.lattice)
-                        st.subheader("Crystal Parameters")
-
-                        lattice = (
-                            doc.get("structure", {}).get("lattice")
-                            if isinstance(doc.get("structure"), dict)
-                            else None
-                        )
-
-                        if lattice:
-                            crystal_keys = ["a", "b", "c", "alpha", "beta", "gamma", "volume"]
-                            crystal_params = {k: str(lattice.get(k, "N/A")) for k in crystal_keys}
-                            st.table(pd.DataFrame(list(crystal_params.items()), columns=["Parameter", "Value"]))
-                        else:
-                            st.caption("No lattice data available.")
-
-                        # Elasticity / Thermo / Magnetism / Oxidation / Bonding
-                        for doc_type in ["elasticity","thermo","magnetism","oxidation_states","bonding"]:
-                            data = doc.get(doc_type)
-                            if isinstance(data, dict) and data:
-                                st.subheader(f"{doc_type.replace('_',' ').capitalize()} Data")
-                                flat = flatten_dict(data)
-                                clean = {k: str(v)[:80] if v is not None else "N/A" for k, v in flat.items()}  # truncate long arrays
-                                st.table(pd.DataFrame(list(clean.items()), columns=["Property","Value"]))
-
-                        # Local comparison
-                        if local_unified is not None:
-                            mp_df = get_mp_property_dataframe(doc)
-
-                            #render_property_comparison(df_local=local_unified, mp_df=mp_df, selected_name=doc.get('pretty_formula', material_id))
-
+                            # Elasticity / Thermo / Magnetism / Oxidation / Bonding
+                            for doc_type in ["elasticity","thermo","magnetism","oxidation_states","bonding"]:
+                                data = doc.get(doc_type)
+                                if isinstance(data, dict) and data:
+                                    st.subheader(f"{doc_type.replace('_',' ').capitalize()} Data")
+                                    flat = flatten_dict(data)
+                                    clean = {k: str(v)[:80] if v is not None else "N/A" for k, v in flat.items()}  # truncate long arrays
+                                    st.table(pd.DataFrame(list(clean.items()), columns=["Property","Value"]))
             else:
                 st.warning("No compounds found for this element.")
+        
         st.write("---")
-
+        
         # --- Advanced MP Filter Form ---
         with st.expander('Advanced MP filters'):
             col1, col2, col3 = st.columns(3)
@@ -780,7 +863,7 @@ def run_selection_app():
             with col3:
                 q_is_stable = st.checkbox('Only stable materials (is_stable)', value=False)
                 q_num_results = st.number_input('Max results', min_value=1, max_value=200, value=50)
-
+        
         # --- Direct MP search (persistent) ---
         mp_search_col1, mp_search_col2 = st.columns([3, 1])
         with mp_search_col1:
@@ -790,35 +873,31 @@ def run_selection_app():
             )
         with mp_search_col2:
             do_mp_search = st.button('Search MP')
-
+        
         # Persist the direct search term
         if do_mp_search:
             st.session_state.mp_search_term = mp_search_term.strip()
-
+        
         # Retrieve current effective search term
         current_search = st.session_state.get("mp_search_term", "").strip()
-
+        
         if do_mp_search and current_search:
             # Direct MP search
             st.session_state.mp_detailed_doc = None
             st.session_state.mp_selected_material_id = None
-
             with st.spinner("Loading material details…"):
                 doc = cached_query_material(current_search)
-
-            if doc:
-                st.session_state.mp_detailed_doc = doc
-                show_mp_card(doc)
-                mp_df = get_mp_property_dataframe(doc)
-            else:
-                st.warning("No MP document found for that term.")
-
+                if doc:
+                    st.session_state.mp_detailed_doc = doc
+                    show_mp_card(doc)
+                    mp_df = get_mp_property_dataframe(doc)
+                else:
+                    st.warning("No MP document found for that term.")
+        
         elif do_mp_search and not current_search and st.session_state.mp_selected_element:
-
             # Fallback: element selection search
             with st.spinner("Fetching Materials Project data… this may take a minute ⏳"):
                 results = cached_query_mp_advanced_filters(elements=[st.session_state.mp_selected_element])
-
             if results:
                 st.session_state.mp_search_results = results
                 res_df = pd.DataFrame(results)
@@ -826,38 +905,31 @@ def run_selection_app():
                     res_df[['material_id', 'pretty_formula', 'density', 'band_gap', 'e_above_hull']].head(q_num_results),
                     use_container_width=True,
                 )
-
                 st.selectbox(
                     'Choose a material from results',
                     res_df['material_id'].tolist(),
                     key='mp_chosen_material_id'
                 )
-
                 if st.session_state.get('mp_chosen_material_id'):
                     chosen_id = st.session_state.mp_chosen_material_id
-
                     if st.button('View selected material (element results)'):
-
                         with st.spinner("Loading material details…"):
                             doc = cached_query_material(chosen_id)
-
-                        if doc:
-                            st.session_state.mp_detailed_doc = doc
-                            show_mp_card(doc)
-                        else:
-                            st.warning('Could not fetch full MP details for chosen material.')
+                            if doc:
+                                st.session_state.mp_detailed_doc = doc
+                                show_mp_card(doc)
+                            else:
+                                st.warning('Could not fetch full MP details for chosen material.')
             else:
                 st.warning('No results found for that element.')
-
+        
         elif do_mp_search:
             # --- Advanced filter search ---
             # Persist filter values
-            filter_keys = ["q_formula", "q_elements", "q_bandgap_min", "q_bandgap_max",
-                           "q_density_min", "q_density_max", "q_ehull_max", "q_is_stable", "q_num_results"]
+            filter_keys = ["q_formula", "q_elements", "q_bandgap_min", "q_bandgap_max", "q_density_min", "q_density_max", "q_ehull_max", "q_is_stable", "q_num_results"]
             for k in filter_keys:
                 if k in locals():
                     st.session_state[k] = locals()[k]
-
             # Use persisted or current form values
             q_formula = st.session_state.get("q_formula", q_formula)
             q_elements = st.session_state.get("q_elements", q_elements)
@@ -868,7 +940,7 @@ def run_selection_app():
             q_ehull_max = st.session_state.get("q_ehull_max", q_ehull_max)
             q_is_stable = st.session_state.get("q_is_stable", q_is_stable)
             q_num_results = st.session_state.get("q_num_results", q_num_results)
-
+            
             kw = {}
             if q_formula:
                 kw['formula'] = q_formula
@@ -882,10 +954,9 @@ def run_selection_app():
                 kw['energy_above_hull'] = (0.0, q_ehull_max)
             if q_is_stable:
                 kw['is_stable'] = True
-
+            
             with st.spinner("Fetching Materials Project data… this may take a minute ⏳"):
                 results = cached_query_mp_advanced_filters(**kw)
-
             if results:
                 st.session_state.mp_search_results = results
                 res_df = pd.DataFrame(results)
@@ -893,35 +964,29 @@ def run_selection_app():
                     res_df[['material_id', 'pretty_formula', 'density', 'band_gap', 'e_above_hull']].head(q_num_results),
                     use_container_width=True,
                 )
-
                 st.selectbox(
                     'Choose a material from results',
                     res_df['material_id'].tolist(),
                     key='mp_chosen_material_id'
                 )
-
                 if st.session_state.get('mp_chosen_material_id'):
                     chosen_id = st.session_state.mp_chosen_material_id
-
                     if st.button('View selected material (advanced results)'):
-
                         with st.spinner("Loading material details…"):
                             doc = cached_query_material(chosen_id)
-
-                        if doc:
-                            st.session_state.mp_detailed_doc = doc
-                            show_mp_card(doc)
-                        else:
-                            st.warning('Could not fetch full MP details for chosen material.')
+                            if doc:
+                                st.session_state.mp_detailed_doc = doc
+                                show_mp_card(doc)
+                            else:
+                                st.warning('Could not fetch full MP details for chosen material.')
             else:
                 st.warning('No results found for these filter criteria.')
-
+    
     st.divider()
     if st.button('Back to Home', use_container_width=True):
         st.session_state.page = 'home'
         st.rerun()
 
-
-# Run when module invoked directly 
+# Run when module invoked directly
 if __name__ == '__main__':
     run_selection_app()

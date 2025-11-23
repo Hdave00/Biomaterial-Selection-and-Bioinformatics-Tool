@@ -11,6 +11,8 @@ def run_ml_app():
     import sys
     import os
     import numpy as np
+    import altair as alt
+
 
     # Ensure src is accessible ---
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -381,8 +383,6 @@ def run_ml_app():
         if predict_btn:
             try:
                 with st.spinner("Analyzing molecular features and predicting toxicity..."):
-
-                # Use the preloaded qsar_model from get_models(), don't reload from disk cause slower
                     preds = predict_qsar_toxicity(qsar_model, smiles_val)
 
                 st.success("Prediction complete!")
@@ -401,15 +401,26 @@ def run_ml_app():
                 })
                 st.markdown("### Molecular Descriptors")
                 st.dataframe(desc_df, use_container_width=True)
-                
-                # --- Visualization ---
-                import matplotlib.pyplot as plt
-                fig, ax = plt.subplots()
-                ax.bar(["Toxic", "Non-Toxic"], [preds["prob_toxic"], 1 - preds["prob_toxic"]])
-                ax.set_ylabel("Probability")
-                ax.set_ylim(0, 1)
-                ax.set_title("Toxicity Classification Probability")
-                st.pyplot(fig)
+
+                # --- Visualization (Altair bar chart) ---
+                import altair as alt
+
+                chart_df = pd.DataFrame({
+                    "Class": ["Toxic", "Non-Toxic"],
+                    "Probability": [preds["prob_toxic"], 1 - preds["prob_toxic"]]
+                })
+
+                chart = alt.Chart(chart_df).mark_bar().encode(
+                    x="Class",
+                    y="Probability",
+                    color="Class"
+                ).properties(
+                    width=300,
+                    height=300,
+                    title="Toxicity Classification Probability"
+                )
+
+                st.altair_chart(chart, use_container_width=True)
 
                 # --- Interpretation ---
                 st.markdown("### Interpretation")

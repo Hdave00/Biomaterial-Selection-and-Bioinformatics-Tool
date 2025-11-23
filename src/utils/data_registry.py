@@ -10,12 +10,13 @@ DATASET_PATHS = {
     "high_entropy": "master_data/HEA/high_entropy_alloys_properties.csv",
     "corrosion": "master_data/corrosion/corr_lookup_database.csv",
     "polymers": "master_data/polymer_tg/polymer_lookup_data.csv",
+    "cytotoxicity": "master_data/biological/chemical_toxicity_measurements.csv",
 }
 
 
 # Schema + example registry for all 5 domains
 
-schema_registry = {
+SCHEMA_REGISTRY = {
     "structural": {
         "title": "Structural Materials",
         "table": "structural_materials",
@@ -285,11 +286,38 @@ def prepare_high_entropy_df(raw_df: pd.DataFrame) -> Tuple[Optional[pd.DataFrame
     return df, metadata
 
 
+def prepare_cytotoxicity_df(raw_df: pd.DataFrame) -> Tuple[Optional[pd.DataFrame], Dict]:
+    """
+    Clean chemical_toxicity_measurements CSV.
+    Coerce numeric columns and normalize names.
+    """
+    if raw_df is None:
+        return None, {}
+
+    df = raw_df.copy()
+    df = normalize_column_names(df)
+    df = merge_duplicate_numeric_columns(df)
+
+    # strip whitespace in string columns
+    for c in df.select_dtypes(include=[object]).columns:
+        df[c] = df[c].astype(str).str.strip()
+
+    # coerce known numeric columns
+    for c in ["CC50_raw", "CC50_mM", "Mw"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors='coerce')
+
+    metadata = {"columns": df.columns.tolist(), "nrows": len(df)}
+    return df, metadata
+
+
 def load_and_prepare(key: str) -> Tuple[Optional[pd.DataFrame], Dict]:
+
     """
     High-level helper to load and prepare dataset by key.
     Returns (df, metadata).
     """
+
     path = get_dataset_path(key)
     if not path:
         return None, {}
@@ -306,6 +334,8 @@ def load_and_prepare(key: str) -> Tuple[Optional[pd.DataFrame], Dict]:
         return prepare_polymers_df(df)
     if key == "high_entropy":
         return prepare_high_entropy_df(df)
+    if key == "cytotoxicity":
+        return prepare_cytotoxicity_df(df)  # <--- fixed
 
     # default fallback: normalized df
     df = normalize_column_names(df)

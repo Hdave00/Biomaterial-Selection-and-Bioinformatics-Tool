@@ -1,4 +1,3 @@
-# streamlit_app.py
 import sys
 import streamlit as st
 import importlib
@@ -7,9 +6,8 @@ from dateutil import parser
 import logging
 
 
-__version__ = "1.4 beta"
-__release_date__ = "2025-11-21"
-__codename__ = "Brutus"
+__version__ = "1.5 clean"
+__codename__ = "sql"
 
 # Configure logging
 logging.basicConfig(

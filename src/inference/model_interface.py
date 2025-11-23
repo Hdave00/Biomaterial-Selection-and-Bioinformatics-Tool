@@ -9,7 +9,6 @@ import tensorflow as tf
 from rdkit import Chem
 from rdkit.Chem import AllChem, Descriptors
 from pathlib import Path
-from src.ml_pipelines.shared_utils import generate_binding_features
 
 try:
     # adjust this import if your package layout differs
