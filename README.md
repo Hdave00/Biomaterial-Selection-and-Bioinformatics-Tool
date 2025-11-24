@@ -1,27 +1,9 @@
 # Biomaterial-Selection-and-Bioinformatics-Tool
 
-## NOTE-- This README is incomplete as of now, basic operational instructions only, complete details coming very soon!
+## NOTE-- This repository is DEPRECATED! Refer to [This New Repo](https://github.com/Hdave00/Biomat-test)
 
-## IMPORTANT -- Due to a python module failure, in matplotlib, the database is running into seg faults on streamlit, as a result only Metals and Alloys can be looked up in the Material Selection domain, and no other data is available! All other functionality in the other 2 domains is fully intact!
+## IMPORTANT -- Due to a python module failure, in matplotlib, the database is running into seg faults on streamlit due to how the plotting and sql databases are being queried. As a result I went down the debug rabbit hole and found that there was heavy virtual environment corruption and pycache files (*pyc) were also heavily corrupted. Those were pushed to the Streamlit Deployment cloud for production and as a result of that, even after countless redeployments, re-caching, complete "root-up" refactoring, the app kept crashing on streamlit with Seg-Faults and even local segfaults.
 
-## Refer to the clean repo for code and implementation details, current repo is buggy! https://github.com/Hdave00/biomat-clean
 
-A modern Streamlit-based biomaterials intelligence platform combining:
-
-* **Local database search** (details coming soon...)
-* **Materials Project API integration** (real-time crystal structure, elasticity, magnetism, bonding, oxidation, and thermodynamic data) details coming soon
-* **3D structure visualization** using **py3Dmol**
-    - Visualisation not yet implemented for 3D Structures of elements/materials, more details coming soon...
-* **Machine-learning pipelines** for structure prediction (details coming ...)
-
-This project is part of a larger effort to build an intelligent decision-support system for materials science and biomaterials engineering.
-
----
-
-Platform is live on Streamlit!
-
-[Visit The app on Streamlit](https://biomat-clean-dp4kc46azxnzdlx9n9x3af.streamlit.app/)
-
----
 
 
